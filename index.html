@@ -36,7 +36,7 @@ summary{cursor:pointer;font-weight:600}
 .row small{grid-column:1/-1;color:var(--soft);font-size:.78rem;margin-top:-2px}
 .station{margin-bottom:12px}
 .station label{display:block;font-size:.85rem;font-weight:600;margin-bottom:4px}
-.station input{width:100%;font:inherit;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
+.station input,.station select{width:100%;font:inherit;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
   background:var(--paper);color:var(--ink)}
 .station small{display:block;color:var(--soft);font-size:.78rem;margin-top:4px}
 .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -55,11 +55,10 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
   <p class="sub">Arvio polkujen märkyydestä Ilmatieteen laitoksen tuntihavainnoista</p>
 
   <div class="station">
-    <label for="station">Havaintoasema</label>
-    <input id="station" list="stationList" value="Espoo Nuuksio" autocomplete="off" spellcheck="false"
-           placeholder="Kirjoita aseman nimi tai valitse listasta">
-    <datalist id="stationList"></datalist>
-    <small id="stationInfo">Ladataan asemalistaa…</small>
+    <label for="stationSel">Havaintoasema</label>
+    <select id="stationSel" disabled><option>Ladataan asemalistaa…</option></select>
+    <input id="station" hidden placeholder="Kirjoita paikan nimi tai fmisid-numero" autocomplete="off" spellcheck="false">
+    <small id="stationInfo"></small>
   </div>
 
   <div class="controls">
@@ -173,27 +172,55 @@ async function loadStations(){
   return [];
 }
 
-function fillStationList(){
-  const dl = $("stationList"); dl.innerHTML = "";
-  for(const st of stations){
-    const o = document.createElement("option"); o.value = st.name; dl.appendChild(o);
-  }
-  const info = $("stationInfo");
-  if(stations.length){
-    info.textContent = stations.length + " asemaa listassa. Voit myös kirjoittaa fmisid-numeron.";
-  }else{
-    info.textContent = "Asemalistaa ei saatu ladattua. Kirjoita paikan nimi tai aseman fmisid-numero.";
-  }
+// Pääkaupunkiseudun asemat: nimi alkaa jollakin näistä. Keskustan (Kaisaniemi) ja merellä olevat asemat jätetään pois.
+const CAPITAL = /^(Espoo|Helsinki|Vantaa|Kauniainen)\b/i;
+const EXCLUDE = /Kaisaniemi|Harmaja|majakka|Kalbådagrund|Suomenlinna|Isosaari|Itätoukki/i;
+
+function groupStations(list){
+  const cmp = (a, b) => a.name.localeCompare(b.name, "fi");
+  const usable = list.filter(s => !(CAPITAL.test(s.name) && EXCLUDE.test(s.name)));
+  return {
+    capital: usable.filter(s => CAPITAL.test(s.name)).sort(cmp),
+    others:  usable.filter(s => !CAPITAL.test(s.name)).sort(cmp)
+  };
 }
 
-function resolveStation(input){
-  const v = input.trim();
+function fillStationList(){
+  const sel = $("stationSel"), info = $("stationInfo");
+  sel.innerHTML = "";
+  if(!stations.length){
+    sel.hidden = true; $("station").hidden = false;
+    $("station").value = "Espoo Nuuksio";
+    info.textContent = "Asemalistaa ei saatu ladattua. Kirjoita paikan nimi tai aseman fmisid-numero.";
+    return;
+  }
+  const g = groupStations(stations);
+  const addGroup = (label, arr) => {
+    if(!arr.length) return;
+    const og = document.createElement("optgroup"); og.label = label;
+    for(const st of arr){
+      const o = document.createElement("option"); o.value = st.id; o.textContent = st.name; og.appendChild(o);
+    }
+    sel.appendChild(og);
+  };
+  addGroup("Pääkaupunkiseutu", g.capital);
+  addGroup("Muut asemat", g.others);
+  sel.disabled = false;
+  let saved = null;
+  try{ saved = localStorage.getItem("muta-station-id"); }catch(_){}
+  const nuuksio = stations.find(s => /Nuuksio/i.test(s.name));
+  const wanted = (saved && [...sel.options].some(o => o.value === saved)) ? saved : nuuksio?.id;
+  if(wanted) sel.value = wanted;
+  info.textContent = "";
+}
+
+function resolveStation(){
+  if(!$("stationSel").hidden && stations.length){
+    const o = $("stationSel").selectedOptions[0];
+    return {fmisid:o.value, name:o.textContent};
+  }
+  const v = $("station").value.trim();
   if(/^\d+$/.test(v)) return {fmisid:v, name:"asema " + v};
-  const low = v.toLowerCase();
-  const exact = stations.find(s => s.name.toLowerCase() === low);
-  if(exact) return {fmisid:exact.id, name:exact.name};
-  const part = stations.filter(s => s.name.toLowerCase().includes(low));
-  if(part.length === 1) return {fmisid:part[0].id, name:part[0].name};
   return {place:v, name:v};
 }
 
@@ -395,13 +422,13 @@ function drawChart(sim){
 function setStatus(msg, err){ const e = $("status"); e.textContent = msg; e.className = err ? "err" : ""; }
 
 $("load").addEventListener("click", async () => {
-  const loc = resolveStation($("station").value);
+  const loc = resolveStation();
   setStatus("Haetaan havaintoja: " + loc.name + "…");
   $("dbg").innerHTML = "";
   $("load").disabled = true;
   try{
     rows = await loadObservations(loc);
-    try{ localStorage.setItem("muta-station", $("station").value); }catch(_){}
+    try{ if(loc.fmisid) localStorage.setItem("muta-station-id", loc.fmisid); }catch(_){}
     const lastT = new Date(rows[rows.length-1].t);
     const rainOk = rows.filter(r => !isNaN(r.R)).length / rows.length;
     let msg = loc.name + ": " + rows.length + " tuntihavaintoa, viimeisin " +
@@ -430,7 +457,6 @@ $("demo").addEventListener("click", () => {
 $("reset").addEventListener("click", () => { params = {...DEFAULTS}; buildSliders(); render(); });
 
 buildSliders();
-try{ const saved = localStorage.getItem("muta-station"); if(saved) $("station").value = saved; }catch(_){}
 loadStations().then(list => { stations = list; fillStationList(); });
 </script>
 </body>
