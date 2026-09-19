@@ -88,6 +88,12 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <small id="stationInfo"></small>
   </div>
 
+  <div class="station">
+    <label for="soilSel">Maaperä</label>
+    <select id="soilSel"><option>Ladataan…</option></select>
+    <small id="soilInfo">Valitse polun paikka, niin maalaji haetaan GTK:n maaperäkartasta.</small>
+  </div>
+
   <div class="controls">
     <button class="primary" id="load">Hae havainnot</button>
     <button id="demo" title="Synteettinen esimerkkidata, ei oikeita havaintoja">Esimerkkidata</button>
@@ -132,7 +138,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     ilmakehän kuivatusvoimasta (VPD), tuulesta ja kuivumisnopeudesta. Pakkasella haihtuminen ja valunta
     pysäytetään, eikä lumen sulamista mallinneta, joten talvella tulos ei päde.
     Ennuste perustuu Ilmatieteen laitoksen ennustedataan. Sadeennuste on epävarmin osa, ja mitä kauempana ennuste on,
-    sitä karkeampi se on. Data: Ilmatieteen laitos, avoin data. Paikannus: © OpenStreetMap-tekijät (Nominatim, ODbL).
+    sitä karkeampi se on. Data: Ilmatieteen laitos, avoin data. Paikannus: © OpenStreetMap-tekijät (Nominatim, ODbL). Maaperädata: Geologian tutkimuskeskus (GTK), avoin lisenssi.
   </p>
 </main>
 
@@ -153,6 +159,7 @@ const SLIDERS = [
    help:"Osuus maaperän vedestä, joka valuu tai suotautuu pois tunnissa. Suuri arvo sopii nopeasti vettä läpäisevälle hiekka- ja harjumaalle, joka kuivuu sateen jälkeen nopeasti. Pieni arvo sopii savelle, turpeelle ja painanteille, jotka pitävät vettä. Arvolla 0,4 % vesimäärä puolittuu noin viikossa, arvolla 1,0 % noin kolmessa päivässä. Pakkasella valunta ja haihtuminen on pysäytetty."}
 ];
 let params = {...DEFAULTS};
+const sliderSync = {};   // päivittää liukusäätimen ulkoasun params-arvon mukaan
 let rows = [];      // havainnot
 let fcRows = [];    // ennuste (alkaa viimeisen havainnon jälkeen)
 let lastFcUrl = "";
@@ -176,8 +183,9 @@ function buildSliders(){
     box.appendChild(row);
     const inp = row.querySelector("input");
     inp.value = params[s.k];
-    const show = () => { row.querySelector("output").textContent = params[s.k] + s.unit; };
+    const show = () => { row.querySelector("output").textContent = String(params[s.k]).replace(".", ",") + s.unit; };
     show();
+    sliderSync[s.k] = () => { inp.value = params[s.k]; show(); };
     inp.addEventListener("input", () => { params[s.k] = parseFloat(inp.value); show(); render(); });
     const btn = row.querySelector("button.help"), ex = row.querySelector(".explain");
     btn.addEventListener("click", () => {
@@ -311,6 +319,7 @@ function applyTrail(t){
   fillStationList(true);
   describeTrail();
   $("stationInfo").textContent = stations.length ? "Oletuksena lähin asema. Voit vaihtaa." : "";
+  if($("soilSel").value === "auto") applySoilMode();      // käsin valittua maaperää ei ylikirjoiteta
 }
 
 async function searchPlace(){
@@ -350,6 +359,113 @@ function resolveStation(){
   const v = $("station").value.trim();
   if(/^\d+$/.test(v)) return {fmisid:v, name:"asema " + v};
   return {place:v, name:v};
+}
+
+/* ---------- Maaperä (GTK) ---------- */
+// Maaperäluokat ja niiden oletusparametrit. Arvot ovat suuntaa-antavia arvioita eivätkä kalibroituja.
+const SOILS = {
+  rock:     {label:"Kallio ja kivikko",          cap:10, kd:1.0},
+  sand:     {label:"Sora ja hiekka (mm. harjut)", cap:30, kd:1.0},
+  sandtill: {label:"Hiekka- ja soramoreeni",      cap:25, kd:0.5},
+  finetill: {label:"Hienoainesmoreeni",           cap:25, kd:0.25},
+  silt:     {label:"Hieta ja hiesu",              cap:25, kd:0.25},
+  clay:     {label:"Savi ja lieju",               cap:15, kd:0.1},
+  peat:     {label:"Turve ja soistuma",           cap:45, kd:0.15}
+};
+// GTK:n maalajikoodit (BASE_SEDIMENT / SURFACE_SEDIMENT) nimiksi ja luokiksi
+const SOIL_CODES = {
+  195110:["Kalliopaljastuma","rock"], 195111:["Kalliomaa","rock"], 195112:["Rakka","rock"], 195113:["Rapakallio","rock"],
+  195311:["Lohkareita","rock"], 195312:["Kiviä","rock"],
+  195313:["Sora","sand"], 195314:["Hiekka","sand"], 19531421:["Liejuinen hiekka","sand"], 195310:["Karkearakeinen maalaji","sand"],
+  195213:["Hiekka- tai soramoreeni","sandtill"], 195214:["Hiekka- tai soramoreeni","sandtill"], 195210:["Sekalajitteinen maalaji","sandtill"],
+  195215:["Hienoainesmoreeni","finetill"],
+  195315:["Karkea hieta","silt"], 19531521:["Liejuinen hieta","silt"], 195411:["Hieno hieta","silt"], 19541121:["Liejuinen hieno hieta","silt"],
+  195412:["Hiesu","silt"], 19541221:["Liejuhiesu","silt"], 195410:["Hienojakoinen maalaji","silt"],
+  195413:["Savi","clay"], 19541321:["Liejusavi","clay"], 195511:["Lieju","clay"], 195618:["Liejuinen hienorakeinen maalaji","clay"],
+  195512:["Saraturve","peat"], 195513:["Rahkaturve","peat"], 195514:["Turvetuotantoalue","peat"],
+  19551822:["Soistuma","peat"], 19551891:["Ohut turvekerros","peat"], 19551892:["Paksu turvekerros","peat"],
+  195601:["Täytemaa",null], 195602:["Kartoittamaton",null], 195603:["Vesi",null]
+};
+const GTK = "https://gtkdata.gtk.fi/arcgis/rest/services/Hasu/maapera/MapServer/";
+// Karttatasot: 16 = pintamaalaji ja 18 = pohjamaalaji (1:20 000 / 1:50 000), 5 ja 6 = samat 1:200 000 -aineistosta
+const LAYERS = { fine:{surface:16, base:18, src:"1:20 000 / 1:50 000"}, coarse:{surface:5, base:6, src:"1:200 000"} };
+
+const kdText = v => String(v).replace(".", ",");
+const soilName = c => c == null ? null : (SOIL_CODES[c]?.[0] || "koodi " + c);
+const soilCat = c => c == null ? null : (SOIL_CODES[c]?.[1] || null);
+const soilSummary = k => SOILS[k].label + ": kapasiteetti " + SOILS[k].cap + " mm, valunta " + kdText(SOILS[k].kd) + " %/h";
+
+async function gtkQuery(layer, lat, lon){
+  const q = new URLSearchParams({
+    geometry: lon + "," + lat, geometryType:"esriGeometryPoint", inSR:"4326",
+    spatialRel:"esriSpatialRelIntersects", outFields:"BASE_SEDIMENT,SURFACE_SEDIMENT",
+    returnGeometry:"false", f:"json"
+  });
+  const res = await fetch(GTK + layer + "/query?" + q.toString());
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  const j = await res.json();
+  if(j.error) throw new Error(j.error.message || "GTK-virhe");
+  return j.features?.[0]?.attributes || null;
+}
+
+async function lookupSoil(lat, lon){
+  let L = LAYERS.fine;
+  let [b, sf] = await Promise.all([gtkQuery(L.base, lat, lon), gtkQuery(L.surface, lat, lon)]);
+  if(!b && !sf){                                           // ei tarkempaa kartoitusta: kokeillaan 1:200 000
+    L = LAYERS.coarse;
+    [b, sf] = await Promise.all([gtkQuery(L.base, lat, lon), gtkQuery(L.surface, lat, lon)]);
+  }
+  if(!b && !sf) return {cat:null, text:"GTK:n maaperäkartassa ei ole tietoa tästä pisteestä."};
+  const bc = b?.BASE_SEDIMENT, sc = sf?.SURFACE_SEDIMENT;
+  const cat = soilCat(sc) || soilCat(bc);
+  const text = "GTK " + L.src + ": pintamaa " + (soilName(sc) || "ei erillistä") + ", pohjamaa " + (soilName(bc) || "–") + ".";
+  return {cat, text};
+}
+
+function setSoilParams(k){
+  params.cap = SOILS[k].cap; params.kd = SOILS[k].kd;
+  sliderSync.cap?.(); sliderSync.kd?.();
+  render();
+}
+
+async function applySoilMode(){
+  const mode = $("soilSel").value, info = $("soilInfo");
+  if(mode === "auto"){
+    if(!trail){ info.textContent = "Valitse polun paikka, niin maalaji haetaan GTK:n maaperäkartasta."; return; }
+    const mine = trail;
+    info.textContent = "Haetaan maalajia GTK:lta…";
+    try{
+      const r = await lookupSoil(trail.lat, trail.lon);
+      if(trail !== mine) return;                            // paikka vaihtui haun aikana
+      if(!r.cat){ info.textContent = r.text + " Maalajia ei voitu käyttää, valitse maaperä käsin."; return; }
+      setSoilParams(r.cat);
+      info.textContent = r.text + " Käytössä: " + soilSummary(r.cat) + ". Kuviot ovat 2–6 hehtaarin kokoisia, joten tulos on suuntaa antava.";
+    }catch(e){
+      info.textContent = "Maalajin haku epäonnistui (" + e.message + "). Valitse maaperä käsin.";
+    }
+  }else if(mode === "default"){
+    params.cap = DEFAULTS.cap; params.kd = DEFAULTS.kd;
+    sliderSync.cap?.(); sliderSync.kd?.(); render();
+    info.textContent = "Oletusarvot: kapasiteetti " + DEFAULTS.cap + " mm, valunta " + kdText(DEFAULTS.kd) + " %/h.";
+  }else if(SOILS[mode]){
+    setSoilParams(mode);
+    info.textContent = "Käsin valittu: " + soilSummary(mode) + ".";
+  }
+}
+
+function initSoil(){
+  const sel = $("soilSel"); sel.innerHTML = "";
+  const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
+  add("auto", "Automaattinen (GTK:n maaperäkartta)");
+  add("default", "Oletusarvot");
+  for(const k of Object.keys(SOILS)) add(k, SOILS[k].label);
+  let saved = "auto";
+  try{ saved = localStorage.getItem("muta-soil") || "auto"; }catch(_){}
+  sel.value = [...sel.options].some(o => o.value === saved) ? saved : "auto";
+  sel.addEventListener("change", () => {
+    try{ localStorage.setItem("muta-soil", sel.value); }catch(_){}
+    applySoilMode();
+  });
 }
 
 /* ---------- Datan haku ---------- */
@@ -758,6 +874,7 @@ $("demo").addEventListener("click", () => {
 $("reset").addEventListener("click", () => { params = {...DEFAULTS}; buildSliders(); render(); });
 
 buildSliders();
+initSoil();
 $("placeGo").addEventListener("click", searchPlace);
 $("place").addEventListener("keydown", e => { if(e.key === "Enter") searchPlace(); });
 $("placeSel").addEventListener("change", () => {
@@ -772,6 +889,7 @@ loadStations().then(list => {
   }catch(_){}
   fillStationList(false);
   if(trail && stations.length) describeTrail();
+  applySoilMode();
 });
 </script>
 </body>
