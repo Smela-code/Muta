@@ -52,6 +52,9 @@ summary{cursor:pointer;font-weight:600}
 .station label{display:block;font-size:.85rem;font-weight:600;margin-bottom:4px}
 .station input,.station select{width:100%;font:inherit;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
   background:var(--paper);color:var(--ink)}
+.placeRow{display:flex;gap:8px}
+.placeRow input{flex:1;min-width:0}
+.station select+small,.station .placeRow+select{margin-top:8px}
 .station small{display:block;color:var(--soft);font-size:.78rem;margin-top:4px}
 .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 button,select{font:inherit;padding:9px 14px;border-radius:9px;border:1px solid var(--line);
@@ -67,6 +70,16 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 <main>
   <h1>Polkujen mutaisuusarvio</h1>
   <p class="sub">Arvio polkujen märkyydestä Ilmatieteen laitoksen tuntihavainnoista</p>
+
+  <div class="station">
+    <label for="place">Polun paikka</label>
+    <div class="placeRow">
+      <input id="place" placeholder="Paikan nimi tai koordinaatit, esim. Haukkalampi, Espoo" autocomplete="off" spellcheck="false">
+      <button type="button" id="placeGo">Hae paikka</button>
+    </div>
+    <select id="placeSel" hidden aria-label="Muut osumat"></select>
+    <small id="placeInfo">Paikka määrää ennusteen sijainnin ja oletusaseman. Voit myös valita aseman suoraan.</small>
+  </div>
 
   <div class="station">
     <label for="stationSel">Havaintoasema</label>
@@ -119,7 +132,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     ilmakehän kuivatusvoimasta (VPD), tuulesta ja kuivumisnopeudesta. Pakkasella haihtuminen ja valunta
     pysäytetään, eikä lumen sulamista mallinneta, joten talvella tulos ei päde.
     Ennuste perustuu Ilmatieteen laitoksen ennustedataan. Sadeennuste on epävarmin osa, ja mitä kauempana ennuste on,
-    sitä karkeampi se on. Data: Ilmatieteen laitos, avoin data.
+    sitä karkeampi se on. Data: Ilmatieteen laitos, avoin data. Paikannus: © OpenStreetMap-tekijät (Nominatim, ODbL).
   </p>
 </main>
 
@@ -130,14 +143,12 @@ const WFS = "https://opendata.fmi.fi/wfs";
 let stations = [];   // [{id, name}]
 let lastUrl = "";
 
-const DEFAULTS = { cap:25, dry:0.10, kw:0.10, kd:0.4 };
+const DEFAULTS = { cap:25, dry:0.10, kd:0.4 };
 const SLIDERS = [
   {k:"cap", name:"Maaperän varastokapasiteetti", min:10, max:50, step:1, unit:" mm",
    help:"Kuinka paljon sadevettä pintamaa, humus ja aluskasvillisuus pystyvät pidättämään, ennen kuin maa on kyllästynyt ja vesi alkaa jäädä lätäköiksi. Pieni arvo sopii ohuelle maakerrokselle tai tiiviille maalle, joka kyllästyy nopeasti. Suuri arvo sopii paksulle humus- tai turvekerrokselle, joka imee paljon vettä. Sama vesimäärä näyttää suuremmalla kapasiteetilla vähemmän märältä."},
   {k:"dry", name:"Kuivumisnopeus", min:0.02, max:0.3, step:0.01, unit:"",
-   help:"Kuinka voimakkaasti ilman kuivatusvoima (lämpötilasta ja suhteellisesta kosteudesta laskettu) kuivattaa maastoa, yksikkönä mm tunnissa per kPa. Arvo kuvaa samalla sitä, kuinka avoin ja aurinkoinen maasto on. Pieni arvo (noin 0,05) sopii tiheään ja varjoisaan kuusimetsään, oletus 0,10 tavalliseen sekametsään ja suuri arvo (0,20 tai yli) avoimeen kalliomaastoon tai harjulle. Lämmin ja kuiva ilma kuivattaa paljon, viileä ja kostea syysilma lähes ei lainkaan, joten ero eri arvojen välillä näkyy eniten kesällä."},
-  {k:"kw", name:"Tuulen vaikutus", min:0, max:0.3, step:0.01, unit:"",
-   help:"Kuinka paljon tuuli nopeuttaa haihtumista. Arvo kertoo haihtumisen lisäyksen jokaista tuulen m/s kohti: esimerkiksi 0,10 ja 5 m/s tuuli tekee haihtumisesta 1,5-kertaisen. Arvo 0 poistaa tuulen vaikutuksen kokonaan. Asema mittaa tuulen yleensä avoimemmassa paikassa kuin missä ajat, joten pieni kuivumisnopeus vastaa myös sitä, että tuuli tuntuu metsässä vähemmän."},
+   help:"Kuinka voimakkaasti ilman kuivatusvoima (lämpötilasta ja suhteellisesta kosteudesta laskettu) kuivattaa maastoa, yksikkönä mm tunnissa per kPa. Arvo kuvaa samalla sitä, kuinka avoin ja aurinkoinen maasto on. Pieni arvo (noin 0,05) sopii tiheään ja varjoisaan kuusimetsään, oletus 0,10 tavalliseen sekametsään ja suuri arvo (0,20 tai yli) avoimeen kalliomaastoon tai harjulle. Sama arvo määrää myös tuulen vaikutuksen: avoimessa maastossa tuuli kuivattaa enemmän kuin metsässä. Haihtuminen kasvaa kertoimella 1 + arvo × tuuli (m/s), esimerkiksi arvolla 0,10 ja 5 m/s tuulella 1,5-kertaiseksi ja arvolla 0,20 kaksinkertaiseksi. Lämmin ja kuiva ilma kuivattaa paljon, viileä ja kostea syysilma lähes ei lainkaan, joten ero näkyy eniten kesällä."},
   {k:"kd", name:"Valunta maaperästä", min:0.1, max:1.0, step:0.05, unit:" %/h",
    help:"Osuus maaperän vedestä, joka valuu tai suotautuu pois tunnissa. Suuri arvo sopii nopeasti vettä läpäisevälle hiekka- ja harjumaalle, joka kuivuu sateen jälkeen nopeasti. Pieni arvo sopii savelle, turpeelle ja painanteille, jotka pitävät vettä. Arvolla 0,4 % vesimäärä puolittuu noin viikossa, arvolla 1,0 % noin kolmessa päivässä. Pakkasella valunta ja haihtuminen on pysäytetty."}
 ];
@@ -145,6 +156,9 @@ let params = {...DEFAULTS};
 let rows = [];      // havainnot
 let fcRows = [];    // ennuste (alkaa viimeisen havainnon jälkeen)
 let lastFcUrl = "";
+let trail = null;    // polun paikka {lat, lon, name}
+let lastGeo = 0;     // edellisen paikannuspyynnön aika (max 1 pyyntö/s)
+let candidates = []; // paikannuksen muut osumat
 let sourceNote = "";
 
 /* ---------- Sliderit ---------- */
@@ -212,7 +226,20 @@ function groupStations(list){
   };
 }
 
-function fillStationList(){
+function haversine(la1, lo1, la2, lo2){
+  const r = Math.PI/180, dLa = (la2-la1)*r, dLo = (lo2-lo1)*r;
+  const a = Math.sin(dLa/2)**2 + Math.cos(la1*r)*Math.cos(la2*r)*Math.sin(dLo/2)**2;
+  return 6371 * 2 * Math.asin(Math.sqrt(a));
+}
+
+function nearestStations(n){
+  if(!trail) return [];
+  return stations.filter(s => s.lat != null && s.lon != null && !EXCLUDE.test(s.name))
+    .map(s => ({...s, km:haversine(trail.lat, trail.lon, s.lat, s.lon)}))
+    .sort((a, b) => a.km - b.km).slice(0, n);
+}
+
+function fillStationList(pickNearest){
   const sel = $("stationSel"), info = $("stationInfo");
   sel.innerHTML = "";
   if(!stations.length){
@@ -221,31 +248,104 @@ function fillStationList(){
     info.textContent = "Asemalistaa ei saatu ladattua. Kirjoita paikan nimi tai aseman fmisid-numero.";
     return;
   }
+  const near = nearestStations(3), nearIds = new Set(near.map(x => x.id));
   const g = groupStations(stations);
-  const addGroup = (label, arr) => {
+  const addGroup = (label, arr, fmt) => {
     if(!arr.length) return;
     const og = document.createElement("optgroup"); og.label = label;
     for(const st of arr){
-      const o = document.createElement("option"); o.value = st.id; o.textContent = st.name; og.appendChild(o);
+      const o = document.createElement("option"); o.value = st.id;
+      o.textContent = fmt ? fmt(st) : st.name; og.appendChild(o);
     }
     sel.appendChild(og);
   };
-  addGroup("Pääkaupunkiseutu", g.capital);
-  addGroup("Muut asemat", g.others);
+  addGroup("Lähimmät asemat", near, st => st.name + " (" + st.km.toFixed(1).replace(".", ",") + " km)");
+  addGroup("Pääkaupunkiseutu", g.capital.filter(x => !nearIds.has(x.id)));
+  addGroup("Muut asemat", g.others.filter(x => !nearIds.has(x.id)));
   sel.disabled = false;
   let saved = null;
   try{ saved = localStorage.getItem("muta-station-id"); }catch(_){}
+  const has = id => id && [...sel.options].some(o => o.value === id);
   const nuuksio = stations.find(s => /Nuuksio/i.test(s.name));
-  const wanted = (saved && [...sel.options].some(o => o.value === saved)) ? saved : nuuksio?.id;
+  let wanted;
+  if(pickNearest && near.length) wanted = near[0].id;
+  else if(has(saved)) wanted = saved;
+  else wanted = near[0]?.id || nuuksio?.id;
   if(wanted) sel.value = wanted;
   info.textContent = "";
+}
+
+/* ---------- Polun paikka ---------- */
+function parseCoords(v){
+  if(!/^[\d\s.,;°+\-NnEe]+$/.test(v)) return null;
+  const nums = v.replace(/[°NnEe]/g, " ").match(/-?\d+(?:[.,]\d+)?/g);
+  if(!nums || nums.length !== 2) return null;
+  const [lat, lon] = nums.map(x => parseFloat(x.replace(",", ".")));
+  if(lat < 58 || lat > 71 || lon < 19 || lon > 32) return {error:"Koordinaatit eivät osu Suomeen (leveys 58–71, pituus 19–32)."};
+  return {lat, lon};
+}
+
+async function geocode(q){
+  const wait = 1100 - (Date.now() - lastGeo);              // Nominatimin ehto: enintään 1 pyyntö/s
+  if(wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastGeo = Date.now();
+  const u = new URLSearchParams({q, format:"jsonv2", countrycodes:"fi", limit:"5", "accept-language":"fi"});
+  const res = await fetch("https://nominatim.openstreetmap.org/search?" + u.toString());
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  const arr = await res.json();
+  return arr.map(o => ({lat:parseFloat(o.lat), lon:parseFloat(o.lon), name:o.display_name}));
+}
+
+const shortName = n => n.split(", ").slice(0, 3).join(", ");
+
+function describeTrail(){
+  const near = nearestStations(1)[0];
+  const coords = trail.lat.toFixed(4) + ", " + trail.lon.toFixed(4);
+  $("placeInfo").textContent = "Paikka: " + (trail.name === coords ? coords : shortName(trail.name) + " (" + coords + ")") + "." +
+    (near ? " Lähin asema: " + near.name + ", " + near.km.toFixed(1).replace(".", ",") + " km." : "");
+}
+
+function applyTrail(t){
+  trail = t;
+  try{ localStorage.setItem("muta-trail", JSON.stringify(t)); }catch(_){}
+  fillStationList(true);
+  describeTrail();
+  $("stationInfo").textContent = stations.length ? "Oletuksena lähin asema. Voit vaihtaa." : "";
+}
+
+async function searchPlace(){
+  const q = $("place").value.trim(), info = $("placeInfo");
+  if(!q) return;
+  $("placeSel").hidden = true; candidates = [];
+  const c = parseCoords(q);
+  if(c){
+    if(c.error){ info.textContent = c.error; return; }
+    applyTrail({lat:c.lat, lon:c.lon, name:c.lat.toFixed(4) + ", " + c.lon.toFixed(4)});
+    return;
+  }
+  $("placeGo").disabled = true;
+  info.textContent = "Haetaan paikkaa…";
+  try{
+    const res = await geocode(q);
+    if(!res.length){ info.textContent = "Paikkaa ei löytynyt. Kokeile tarkempaa nimeä tai syötä koordinaatit muodossa 60.29, 24.57."; return; }
+    candidates = res;
+    if(res.length > 1){
+      const sel = $("placeSel"); sel.innerHTML = "";
+      res.forEach((r, i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = shortName(r.name); sel.appendChild(o); });
+      sel.hidden = false;
+    }
+    applyTrail(res[0]);
+  }catch(e){
+    info.textContent = "Paikannus epäonnistui (" + e.message + "). Syötä koordinaatit muodossa 60.29, 24.57 tai valitse asema suoraan.";
+  }finally{ $("placeGo").disabled = false; }
 }
 
 function resolveStation(){
   if(!$("stationSel").hidden && stations.length){
     const o = $("stationSel").selectedOptions[0];
     const st = stations.find(x => x.id === o.value);
-    return {fmisid:o.value, name:o.textContent, lat:st?.lat ?? null, lon:st?.lon ?? null};
+    return {fmisid:o.value, name:o.textContent.replace(/ \(\d+,\d km\)$/, ""),
+            lat:trail ? trail.lat : (st?.lat ?? null), lon:trail ? trail.lon : (st?.lon ?? null)};
   }
   const v = $("station").value.trim();
   if(/^\d+$/.test(v)) return {fmisid:v, name:"asema " + v};
@@ -445,7 +545,7 @@ function simulate(data, p){
     if(S > cap){ P += S - cap; S = cap; }
 
     if(T >= 0){
-      const E = p.dry * vpd(T, RH) * (1 + p.kw*WS);   // mm/h
+      const E = p.dry * vpd(T, RH) * (1 + p.dry*WS);   // mm/h; tuulen vaikutus kasvaa avoimessa maastossa
       const eP = Math.min(P, E); P -= eP;
       const eS = Math.min(S, (E - eP) * (S/cap)); S -= eS;
       const i = Math.min(P, cap - S, inf); P -= i; S += i;
@@ -467,9 +567,10 @@ const CLASSES = [
 ];
 
 // Maastoikonit samassa järjestyksessä kuin luokat: kuiva, hyvä pohja, kostea, märkä, mutaa ja lätäköitä.
-// Kaikissa on maastopyörä sivulta ja nystyräinen rengas; märkyys näkyy maastossa ja roiskeissa.
+// Kaikissa on maastopyörä sivulta ja hienovarainen rengaskuvio; märkyys näkyy maastossa ja roiskeissa.
 const wheel = (cx, cy) =>
-  `<circle cx="${cx}" cy="${cy}" r="12.5" stroke-width="4.5" stroke-dasharray="4.6 2.54" stroke-linecap="butt"/>` +   // nystyräkuvioitu rengas
+  `<circle cx="${cx}" cy="${cy}" r="12.5" stroke-width="3"/>` +                                                       // sileä rengas
+  `<circle cx="${cx}" cy="${cy}" r="14.6" stroke-width="1.4" stroke-dasharray="2 2.17" stroke-linecap="butt"/>` +     // hienovarainen kuviointi
   `<circle cx="${cx}" cy="${cy}" r="8" stroke-width="1.6"/>` +                                                        // vanne
   `<path d="M${cx-8} ${cy}h16M${cx} ${cy-8}v16" stroke-width="1"/>`;                                                  // pinnat
 const FRAME = `<path stroke-width="2.4" d="M26 43L46 44L63 25L41 24L46 44M41 24L26 43M63 25L70 43M63 25l-2-7h7M41 24l-1-5M37 19h8M46 44l-2 6M42 50h5"/>`;
@@ -622,7 +723,7 @@ $("load").addEventListener("click", async () => {
       const fc = await fetchForecast(loc);
       const lastObs = new Date(rows[rows.length-1].t).getTime();
       fcRows = fc.list.filter(o => { const t = new Date(o.t).getTime(); return t > lastObs && t <= lastObs + FC_DAYS*864e5; });
-      msg += " Ennuste: " + fc.label + ", " + (fcRows.length/24).toFixed(1).replace(".", ",") + " vrk.";
+      msg += " Ennuste" + (trail ? " polun koordinaateista" : "") + ": " + fc.label + ", " + (fcRows.length/24).toFixed(1).replace(".", ",") + " vrk.";
     }catch(e2){
       fcRows = [];
       msg += " Ennustetta ei saatu (" + e2.message + ").";
@@ -657,7 +758,21 @@ $("demo").addEventListener("click", () => {
 $("reset").addEventListener("click", () => { params = {...DEFAULTS}; buildSliders(); render(); });
 
 buildSliders();
-loadStations().then(list => { stations = list; fillStationList(); });
+$("placeGo").addEventListener("click", searchPlace);
+$("place").addEventListener("keydown", e => { if(e.key === "Enter") searchPlace(); });
+$("placeSel").addEventListener("change", () => {
+  const c = candidates[parseInt($("placeSel").value, 10)];
+  if(c) applyTrail(c);
+});
+loadStations().then(list => {
+  stations = list;
+  try{
+    const t = JSON.parse(localStorage.getItem("muta-trail") || "null");
+    if(t && isFinite(t.lat) && isFinite(t.lon)){ trail = t; $("place").value = shortName(t.name); }
+  }catch(_){}
+  fillStationList(false);
+  if(trail && stations.length) describeTrail();
+});
 </script>
 </body>
 </html>
