@@ -116,7 +116,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 
   <p class="foot">
     Malli on karkea ja kalibroimaton: kaksi vesivarastoa (maaperä ja lätäköt), joista haihtuminen riippuu
-    ilmakehän kuivatusvoimasta (VPD), tuulesta ja metsäkertoimesta. Pakkasella haihtuminen ja valunta
+    ilmakehän kuivatusvoimasta (VPD), tuulesta ja kuivumisnopeudesta. Pakkasella haihtuminen ja valunta
     pysäytetään, eikä lumen sulamista mallinneta, joten talvella tulos ei päde.
     Ennuste perustuu Ilmatieteen laitoksen ennustedataan. Sadeennuste on epävarmin osa, ja mitä kauempana ennuste on,
     sitä karkeampi se on. Data: Ilmatieteen laitos, avoin data.
@@ -130,16 +130,14 @@ const WFS = "https://opendata.fmi.fi/wfs";
 let stations = [];   // [{id, name}]
 let lastUrl = "";
 
-const DEFAULTS = { cap:25, ke:0.20, forest:0.5, kw:0.10, kd:0.4 };
+const DEFAULTS = { cap:25, dry:0.10, kw:0.10, kd:0.4 };
 const SLIDERS = [
   {k:"cap", name:"Maaperän varastokapasiteetti", min:10, max:50, step:1, unit:" mm",
    help:"Kuinka paljon sadevettä pintamaa, humus ja aluskasvillisuus pystyvät pidättämään, ennen kuin maa on kyllästynyt ja vesi alkaa jäädä lätäköiksi. Pieni arvo sopii ohuelle maakerrokselle tai tiiviille maalle, joka kyllästyy nopeasti. Suuri arvo sopii paksulle humus- tai turvekerrokselle, joka imee paljon vettä. Sama vesimäärä näyttää suuremmalla kapasiteetilla vähemmän märältä."},
-  {k:"ke", name:"Haihtumiskerroin", min:0.05, max:0.5, step:0.01, unit:"",
-   help:"Perusnopeus, jolla vesi haihtuu maastosta (mm tunnissa per kPa). Malli kertoo sen ilman kuivatusvoimalla, joka lasketaan lämpötilasta ja suhteellisesta kosteudesta. Lämmin ja kuiva ilma kuivattaa paljon, viileä ja kostea syysilma lähes ei lainkaan. Suurempi arvo kuivattaa maastoa nopeammin. Ero näkyy eniten kesällä, koska syksyllä kuivatusvoima on pieni."},
-  {k:"forest", name:"Metsäkerroin", min:0.1, max:1, step:0.05, unit:"",
-   help:"Kuinka paljon metsä hidastaa haihtumista verrattuna avoimeen maastoon. Arvo 1 vastaa aurinkoista ja tuulista aukeaa paikkaa. Pieni arvo sopii varjoisaan ja tuulelta suojaiseen kuusimetsään, jossa maa pysyy märkänä pitkään. Käytä pientä arvoa, jos reitit kulkevat tiheässä metsässä, ja suurempaa, jos ajat kallioilla ja harjuilla."},
+  {k:"dry", name:"Kuivumisnopeus", min:0.02, max:0.3, step:0.01, unit:"",
+   help:"Kuinka voimakkaasti ilman kuivatusvoima (lämpötilasta ja suhteellisesta kosteudesta laskettu) kuivattaa maastoa, yksikkönä mm tunnissa per kPa. Arvo kuvaa samalla sitä, kuinka avoin ja aurinkoinen maasto on. Pieni arvo (noin 0,05) sopii tiheään ja varjoisaan kuusimetsään, oletus 0,10 tavalliseen sekametsään ja suuri arvo (0,20 tai yli) avoimeen kalliomaastoon tai harjulle. Lämmin ja kuiva ilma kuivattaa paljon, viileä ja kostea syysilma lähes ei lainkaan, joten ero eri arvojen välillä näkyy eniten kesällä."},
   {k:"kw", name:"Tuulen vaikutus", min:0, max:0.3, step:0.01, unit:"",
-   help:"Kuinka paljon tuuli nopeuttaa haihtumista. Arvo kertoo haihtumisen lisäyksen jokaista tuulen m/s kohti: esimerkiksi 0,10 ja 5 m/s tuuli tekee haihtumisesta 1,5-kertaisen. Arvo 0 poistaa tuulen vaikutuksen kokonaan. Asema mittaa tuulen yleensä avoimemmassa paikassa kuin missä ajat, joten metsäkerroin pienentää tuulen vaikutusta myös käytännössä."},
+   help:"Kuinka paljon tuuli nopeuttaa haihtumista. Arvo kertoo haihtumisen lisäyksen jokaista tuulen m/s kohti: esimerkiksi 0,10 ja 5 m/s tuuli tekee haihtumisesta 1,5-kertaisen. Arvo 0 poistaa tuulen vaikutuksen kokonaan. Asema mittaa tuulen yleensä avoimemmassa paikassa kuin missä ajat, joten pieni kuivumisnopeus vastaa myös sitä, että tuuli tuntuu metsässä vähemmän."},
   {k:"kd", name:"Valunta maaperästä", min:0.1, max:1.0, step:0.05, unit:" %/h",
    help:"Osuus maaperän vedestä, joka valuu tai suotautuu pois tunnissa. Suuri arvo sopii nopeasti vettä läpäisevälle hiekka- ja harjumaalle, joka kuivuu sateen jälkeen nopeasti. Pieni arvo sopii savelle, turpeelle ja painanteille, jotka pitävät vettä. Arvolla 0,4 % vesimäärä puolittuu noin viikossa, arvolla 1,0 % noin kolmessa päivässä. Pakkasella valunta ja haihtuminen on pysäytetty."}
 ];
@@ -447,7 +445,7 @@ function simulate(data, p){
     if(S > cap){ P += S - cap; S = cap; }
 
     if(T >= 0){
-      const E = p.ke * vpd(T, RH) * (1 + p.kw*WS) * p.forest;   // mm/h
+      const E = p.dry * vpd(T, RH) * (1 + p.kw*WS);   // mm/h
       const eP = Math.min(P, E); P -= eP;
       const eS = Math.min(S, (E - eP) * (S/cap)); S -= eS;
       const i = Math.min(P, cap - S, inf); P -= i; S += i;
