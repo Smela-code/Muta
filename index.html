@@ -29,7 +29,7 @@ h1{font-size:1.05rem;margin:0 0 2px;font-weight:700;letter-spacing:.01em}
 .chip span{display:block;font-size:.78rem;color:var(--soft)}
 .chip b{font-size:1.15rem}
 .chip em{display:block;font-style:normal;font-size:.8rem}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:12px 0}
 .stat{background:var(--paper);border-radius:10px;padding:10px 12px}
 .stat b{display:block;font-size:1.15rem}
 .stat span{font-size:.78rem;color:var(--soft)}
@@ -113,8 +113,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <div class="fc" id="fc" hidden></div>
     <div class="stats">
       <div class="stat"><b id="s-rain">–</b><span>sadetta 7 vrk</span></div>
-      <div class="stat"><b id="s-temp">–</b><span>lämpötila 7 vrk</span></div>
-      <div class="stat"><b id="s-rh">–</b><span>ilmankosteus 7 vrk</span></div>
+      <div class="stat"><b id="s-evap">–</b><span>haihtuminen 7 vrk (mallin arvio)</span></div>
     </div>
     <div class="card">
       <svg id="chart" viewBox="0 0 640 260" role="img" aria-label="Märkyysindeksi ja sademäärä ajan funktiona"></svg>
@@ -652,7 +651,7 @@ function simulate(data, p){
   const cap = p.cap, pmax = 15, inf = 0.15;
   let S = 0.5*cap, P = 0;
   let T = 5, RH = 85, WS = 2;
-  const score = [], Sarr = [], Parr = [];
+  const score = [], Sarr = [], Parr = [], evap = [];
   for(const r of data){
     if(!isNaN(r.T)) T = r.T;
     if(!isNaN(r.RH)) RH = r.RH;
@@ -662,18 +661,20 @@ function simulate(data, p){
     S += rain;
     if(S > cap){ P += S - cap; S = cap; }
 
+    let ev = 0;                                             // tunnin aikana haihtunut vesi (mm)
     if(T >= 0){
       const E = p.dry * vpd(T, RH) * (1 + p.dry*WS);   // mm/h; tuulen vaikutus kasvaa avoimessa maastossa
       const eP = Math.min(P, E); P -= eP;
       const eS = Math.min(S, (E - eP) * (S/cap)); S -= eS;
+      ev = eP + eS;
       const i = Math.min(P, cap - S, inf); P -= i; S += i;
       S -= S * p.kd / 100;
     }
     P = Math.min(P, pmax);
-    Sarr.push(S); Parr.push(P);
+    Sarr.push(S); Parr.push(P); evap.push(ev);
     score.push(Math.min(100, 70*S/cap + 30*P/pmax));
   }
-  return { score, S:Sarr, P:Parr };
+  return { score, S:Sarr, P:Parr, evap };
 }
 
 const CLASSES = [
@@ -725,8 +726,11 @@ function renderForecast(sim){
     const idx = all.findIndex(r => new Date(r.t).getTime() >= t0 + h*36e5);
     if(idx < 0) continue;
     const sc = sim.score[idx], cls = CLASSES.find(c => sc < c.max);
+    const win = all.slice(Math.max(rows.length, idx - 23), idx + 1).map(r => r.T).filter(x => !isNaN(x));   // 24 h ennustejakso
+    const deg = v => String(Math.round(v)).replace("-", "−");            // pyöristys ja oikea miinusmerkki
+    const tmp = win.length ? "min " + deg(Math.min(...win)) + " / max " + deg(Math.max(...win)) + " °C" : "–";
     const d = document.createElement("div"); d.className = "chip"; d.style.borderLeftColor = cls.color;
-    d.innerHTML = `<span>${lab}</span><b>${Math.round(sc)}</b><em>${cls.label}</em>`;
+    d.innerHTML = `<span>${lab}</span><b>${Math.round(sc)}</b><em>${cls.label}</em><span>${tmp}</span>`;
     box.appendChild(d);
   }
   box.hidden = !box.children.length;
@@ -746,10 +750,9 @@ function render(){
 
   const wk = rows.slice(-168);
   const rain7 = wk.reduce((a,r) => a + (isNaN(r.R) ? 0 : r.R), 0);
-  const avg = k => { const v = wk.map(r => r[k]).filter(x => !isNaN(x)); return v.length ? v.reduce((a,b) => a+b,0)/v.length : NaN; };
+  const evap7 = sim.evap.slice(Math.max(0, n - 168), n).reduce((a, b) => a + b, 0);
   $("s-rain").textContent = fmt(rain7) + " mm";
-  $("s-temp").textContent = fmt(avg("T")) + " °C";
-  $("s-rh").textContent = fmt(avg("RH"), 0) + " %";
+  $("s-evap").textContent = fmt(evap7) + " mm";
   $("out").hidden = false;
   renderForecast(sim);
   drawChart(sim);
