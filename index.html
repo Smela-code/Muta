@@ -70,7 +70,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 <body>
 <main>
   <h1>Polkujen mutaisuusarvio</h1>
-  <p class="sub">Arvio polkujen märkyydestä Ilmatieteen laitoksen tuntihavainnoista</p>
+  <p class="sub">Arvio polkujen märkyydestä perustuen Ilmatieteen laitoksen säätietoihin ja Geologian tutkimuskeskuksen maaperätietoihin</p>
 
   <div class="station">
     <label for="place">Polun paikka</label>
@@ -756,7 +756,7 @@ function render(){
 
 const FETCH_DAYS = 21;    // malliin haettava data (vrk)
 const SHOW_DAYS = 14;     // graafissa näytettävä havaintojakso (vrk)
-const FC_DAYS = 3;        // näytettävä ennustejakso (vrk)
+const FC_DAYS = 5;        // graafissa näytettävä ennustejakso (vrk)
 
 function drawChart(sim){
   const W = 640, H = 260, L = 44, R = 46, Tp = 18, B = 26;
