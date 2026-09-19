@@ -17,6 +17,10 @@ h1{font-size:1.05rem;margin:0 0 2px;font-weight:700;letter-spacing:.01em}
 .sub{color:var(--soft);font-size:.85rem;margin:0 0 16px}
 .verdict{border-radius:14px;padding:18px 18px 16px;color:#fff;background:var(--moss);
   transition:background .4s}
+.verdict{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.vtext{flex:1;min-width:0}
+.wicon{flex:none;width:68px;height:68px;color:#fff}
+.wicon svg{display:block;width:100%;height:100%}
 .verdict .big{font-size:2.6rem;font-weight:800;line-height:1;letter-spacing:-.02em}
 .verdict .lbl{font-size:1.15rem;font-weight:600;margin-top:6px}
 .verdict .note{font-size:.88rem;opacity:.92;margin-top:8px}
@@ -80,9 +84,12 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 
   <section id="out" hidden>
     <div class="verdict" id="verdict">
-      <div class="big" id="score">–</div>
-      <div class="lbl" id="label">–</div>
-      <div class="note" id="note"></div>
+      <div class="vtext">
+        <div class="big" id="score">–</div>
+        <div class="lbl" id="label">–</div>
+        <div class="note" id="note"></div>
+      </div>
+      <div class="wicon" id="wicon" aria-hidden="true"></div>
     </div>
     <div class="fc" id="fc" hidden></div>
     <div class="stats">
@@ -461,6 +468,27 @@ const CLASSES = [
   {max:101, label:"Mutaa ja lätäköitä",    color:"#3f2a1e", note:"Maasto on kyllästynyt. Suosi kovapohjaisia reittejä."}
 ];
 
+// Sääikonit samassa järjestyksessä kuin luokat: kuiva, hyvä pohja, kostea, märkä, mutaa ja lätäköitä.
+const CLOUD = "M14 44a9 9 0 0 1-1-18a13 13 0 0 1 25-4a10.5 10.5 0 0 1 3 22z";
+const ICONS = [
+  // aurinko
+  `<circle cx="32" cy="32" r="10"/><path d="M32 8v8M32 48v8M8 32h8M48 32h8M15 15l5.6 5.6M43.4 43.4L49 49M15 49l5.6-5.6M43.4 20.6L49 15"/>`,
+  // aurinko pilven takana
+  `<circle cx="22" cy="22" r="8"/><path d="M22 8v3M8 22h3M33 22h3M12.1 12.1l2.1 2.1M31.9 12.1l-2.1 2.1M12.1 31.9l2.1-2.1"/>
+   <path style="fill:var(--bn)" transform="translate(18 20) scale(.85)" d="${CLOUD}"/>`,
+  // pilvinen ja sumuinen
+  `<path transform="translate(4 -1)" d="${CLOUD}"/><path d="M14 52h30M22 58h30"/>`,
+  // sadepilvi
+  `<path transform="translate(4 -3)" d="${CLOUD}"/><path d="M22 46l-3 8M33 46l-3 8M44 46l-3 8"/>`,
+  // rankkasade ja lätäkkö
+  `<path transform="translate(4 -5)" d="${CLOUD}"/><path d="M17 41l-2.5 6M27 41l-2.5 6M37 41l-2.5 6M47 41l-2.5 6"/>
+   <ellipse cx="32" cy="57" rx="19" ry="3.5"/><path d="M26 57h12" stroke-width="2"/>`
+];
+function iconSvg(i){
+  return `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${ICONS[i]}</svg>`;
+}
+
+
 /* ---------- Näyttö ---------- */
 function fmt(x, d=1){ return isNaN(x) ? "–" : x.toFixed(d); }
 
@@ -490,6 +518,8 @@ function render(){
   $("label").textContent = cls.label;
   $("note").textContent = cls.note;
   $("verdict").style.background = cls.color;
+  $("verdict").style.setProperty("--bn", cls.color);
+  $("wicon").innerHTML = iconSvg(CLASSES.indexOf(cls));
 
   const wk = rows.slice(-168);
   const rain7 = wk.reduce((a,r) => a + (isNaN(r.R) ? 0 : r.R), 0);
