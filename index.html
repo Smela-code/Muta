@@ -220,18 +220,14 @@ async function loadStations(){
   return [];
 }
 
-// Pääkaupunkiseudun asemat: nimi alkaa jollakin näistä. Keskustan (Kaisaniemi) ja merellä olevat asemat jätetään pois.
-const CAPITAL = /^(Espoo|Helsinki|Vantaa|Kauniainen)\b/i;
-const EXCLUDE = /Kaisaniemi|Harmaja|majakka|Kalbådagrund|Suomenlinna|Isosaari|Itätoukki/i;
-
-function groupStations(list){
-  const cmp = (a, b) => a.name.localeCompare(b.name, "fi");
-  const usable = list.filter(s => !(CAPITAL.test(s.name) && EXCLUDE.test(s.name)));
-  return {
-    capital: usable.filter(s => CAPITAL.test(s.name)).sort(cmp),
-    others:  usable.filter(s => !CAPITAL.test(s.name)).sort(cmp)
-  };
-}
+// Asemat, joita ei näytetä: merisääasemat (majakat, ulkosaaret ja satama-asemat).
+// FMI ei merkitse merisääasemia omaksi ryhmäkseen, joten poisto perustuu asemien nimiin.
+const EXCLUDE = new RegExp([
+  "Harmaja", "majakka", "Kalbådagrund", "Suomenlinna", "Isosaari", "Itätoukki", "Bogskär", "Märket",
+  "Russarö", "Jussarö", "Bågaskär", "Orrengrund", "Rankki", "Haapasaari", "Ulko-Tammio", "Pitkäpaasi", "Utö", "Vänö",
+  "Isokari", "Kylmäpihlaja", "Nordanå", "Sälgrund", "Tankar", "Valassaaret", "Kallan", "Marjaniemi", "Ulkokrunni",
+  "Vihreäsaari", "Lapaluoto", "Rajakari", "Kaivopuisto", "Ajos", "Bengtskär", "Storklubb", "satama"
+].join("|"), "i");
 
 function haversine(la1, lo1, la2, lo2){
   const r = Math.PI/180, dLa = (la2-la1)*r, dLo = (lo2-lo1)*r;
@@ -256,7 +252,8 @@ function fillStationList(pickNearest){
     return;
   }
   const near = nearestStations(3), nearIds = new Set(near.map(x => x.id));
-  const g = groupStations(stations);
+  const rest = stations.filter(x => !EXCLUDE.test(x.name) && !nearIds.has(x.id))
+                       .sort((p, q) => p.name.localeCompare(q.name, "fi"));
   const addGroup = (label, arr, fmt) => {
     if(!arr.length) return;
     const og = document.createElement("optgroup"); og.label = label;
@@ -267,8 +264,7 @@ function fillStationList(pickNearest){
     sel.appendChild(og);
   };
   addGroup("Lähimmät asemat", near, st => st.name + " (" + st.km.toFixed(1).replace(".", ",") + " km)");
-  addGroup("Pääkaupunkiseutu", g.capital.filter(x => !nearIds.has(x.id)));
-  addGroup("Muut asemat", g.others.filter(x => !nearIds.has(x.id)));
+  addGroup(near.length ? "Muut asemat" : "Kaikki asemat", rest);
   sel.disabled = false;
   let saved = null;
   try{ saved = localStorage.getItem("muta-station-id"); }catch(_){}
@@ -794,12 +790,12 @@ function drawChart(sim){
   const blocks = [...buckets.values()].filter(bk => bk.last >= i0)
     .map(bk => ({sum:bk.sum, a:Math.max(bk.first, i0) - i0, z:bk.last - i0}));
   const maxB = Math.max(0, ...blocks.map(bk => bk.sum));
-  const rmax = [6, 10, 20, 30, 40, 60, 100].find(v => v >= maxB) || Math.ceil(maxB);   // sadeakselin yläraja (mm/6 h)
-  const ry = v => Tp + ph - (v / rmax) * ph * 0.4;                                    // sade käyttää alimman 40 % korkeudesta
+  const rmax = [4, 8, 12, 20, 40, 60, 100].find(v => v >= maxB) || Math.ceil(maxB);   // sadeakselin yläraja (mm/6 h)
+  const ry = v => Tp + ph * (1 - v / rmax);                                           // sadeakseli kattaa koko kuvaajan korkeuden
   // oikea akseli: mm / 6 h
   s += `<text x="${W-R+6}" y="${Tp-6}" font-size="11" text-anchor="start" fill="#2f6f80">mm/6 h</text>`;
   const fmtR = v => Number.isInteger(v) ? String(v) : v.toFixed(1).replace(".", ",");
-  for(const v of [...new Set([0, rmax/2, rmax])]){
+  for(const v of [0, 1, 2, 3, 4].map(k => rmax * k / 4)){   // merkinnät samoissa kohdissa kuin vasemman akselin ruudukko
     s += `<line x1="${W-R}" x2="${W-R+4}" y1="${ry(v)}" y2="${ry(v)}" stroke="#2f6f80" stroke-width="1"/>`;
     s += `<text x="${W-R+7}" y="${ry(v)+4}" font-size="11" text-anchor="start" fill="#2f6f80">${fmtR(v)}</text>`;
   }
