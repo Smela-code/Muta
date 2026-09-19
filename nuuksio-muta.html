@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nuuksion maastomuta-arvio</title>
+<style>
+:root{
+  --bg:#dfe5dc; --paper:#f1f4ee; --ink:#17231d; --soft:#5a6a60;
+  --mud:#5b4332; --moss:#4d6b3c; --water:#2f6f80; --line:#c3cdc0;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.45 "Avenir Next","Segoe UI",system-ui,sans-serif}
+main{max-width:640px;margin:0 auto;padding:18px 16px 40px}
+h1{font-size:1.05rem;margin:0 0 2px;font-weight:700;letter-spacing:.01em}
+.sub{color:var(--soft);font-size:.85rem;margin:0 0 16px}
+.verdict{border-radius:14px;padding:18px 18px 16px;color:#fff;background:var(--moss);
+  transition:background .4s}
+.verdict .big{font-size:2.6rem;font-weight:800;line-height:1;letter-spacing:-.02em}
+.verdict .lbl{font-size:1.15rem;font-weight:600;margin-top:6px}
+.verdict .note{font-size:.88rem;opacity:.92;margin-top:8px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.stat{background:var(--paper);border-radius:10px;padding:10px 12px}
+.stat b{display:block;font-size:1.15rem}
+.stat span{font-size:.78rem;color:var(--soft)}
+.card{background:var(--paper);border-radius:14px;padding:12px 12px 8px;margin-bottom:12px}
+svg{width:100%;height:auto;display:block}
+.legend{display:flex;gap:14px;font-size:.78rem;color:var(--soft);padding:2px 4px 6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+details{background:var(--paper);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+summary{cursor:pointer;font-weight:600}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin-top:12px;font-size:.9rem}
+.row output{font-variant-numeric:tabular-nums;color:var(--soft)}
+.row input{grid-column:1/-1;width:100%;accent-color:var(--moss)}
+.row small{grid-column:1/-1;color:var(--soft);font-size:.78rem;margin-top:-2px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button,select{font:inherit;padding:9px 14px;border-radius:9px;border:1px solid var(--line);
+  background:var(--paper);color:var(--ink)}
+button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--water);outline-offset:2px}
+#status{font-size:.82rem;color:var(--soft);min-height:1.3em}
+#status.err{color:#8a2c1f}
+.foot{font-size:.78rem;color:var(--soft);margin-top:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Nuuksion maastomuta-arvio</h1>
+  <p class="sub">Arvio polkujen märkyydestä Ilmatieteen laitoksen tuntihavainnoista</p>
+
+  <div class="controls">
+    <button class="primary" id="load">Hae havainnot</button>
+    <select id="days" aria-label="Havaintojakson pituus">
+      <option value="14">14 vrk</option>
+      <option value="21" selected>21 vrk</option>
+      <option value="28">28 vrk</option>
+    </select>
+    <button id="demo" title="Synteettinen esimerkkidata, ei oikeita havaintoja">Esimerkkidata</button>
+  </div>
+  <div id="status" role="status">Paina "Hae havainnot".</div>
+
+  <section id="out" hidden>
+    <div class="verdict" id="verdict">
+      <div class="big" id="score">–</div>
+      <div class="lbl" id="label">–</div>
+      <div class="note" id="note"></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="s-rain">–</b><span>sadetta 7 vrk</span></div>
+      <div class="stat"><b id="s-temp">–</b><span>lämpötila 7 vrk</span></div>
+      <div class="stat"><b id="s-rh">–</b><span>ilmankosteus 7 vrk</span></div>
+    </div>
+    <div class="card">
+      <svg id="chart" viewBox="0 0 640 260" role="img" aria-label="Märkyysindeksi ja sademäärä ajan funktiona"></svg>
+      <div class="legend">
+        <span><i style="background:var(--mud)"></i>Märkyysindeksi</span>
+        <span><i style="background:var(--water)"></i>Sade (mm/h)</span>
+        <span><i style="background:#c9d3c5"></i>Viimeiset 7 vrk</span>
+      </div>
+    </div>
+  </section>
+
+  <details>
+    <summary>Mallin parametrit</summary>
+    <div id="sliders"></div>
+    <div class="controls" style="margin-top:14px"><button id="reset">Palauta oletukset</button></div>
+  </details>
+
+  <p class="foot">
+    Malli on karkea ja kalibroimaton: kaksi vesivarastoa (maaperä ja lätäköt), joista haihtuminen riippuu
+    ilmakehän kuivatusvoimasta (VPD), tuulesta ja metsäkertoimesta. Pakkasella haihtuminen ja valunta
+    pysäytetään, eikä lumen sulamista mallinneta, joten talvella tulos ei päde.
+    Data: Ilmatieteen laitos, avoin data.
+  </p>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const WFS = "https://opendata.fmi.fi/wfs";
+// Nuuksion havaintoaseman koordinaatit; rajapinta palauttaa lähimmän aseman.
+const LATLON = "60.29128,24.56788";
+
+const DEFAULTS = { cap:25, ke:0.20, forest:0.5, kw:0.10, kd:0.4 };
+const SLIDERS = [
+  {k:"cap",    name:"Maaperän varastokapasiteetti", min:10,  max:50,  step:1,    unit:" mm",
+   hint:"Kuinka paljon vettä pintamaa ja aluskasvillisuus pidättävät ennen lätäköitymistä."},
+  {k:"ke",     name:"Haihtumiskerroin",             min:0.05,max:0.5, step:0.01, unit:"",
+   hint:"mm/h per kPa. Suurempi arvo tarkoittaa nopeampaa kuivumista."},
+  {k:"forest", name:"Metsäkerroin",                 min:0.1, max:1,   step:0.05, unit:"",
+   hint:"1 = avoin maasto, pienempi = varjoisa ja tuulensuojainen metsä."},
+  {k:"kw",     name:"Tuulen vaikutus",              min:0,   max:0.3, step:0.01, unit:"",
+   hint:"Haihtumisen lisäys per m/s tuulta."},
+  {k:"kd",     name:"Valunta maaperästä",           min:0.1, max:1.0, step:0.05, unit:" %/h",
+   hint:"Osuus maaperän vedestä, joka valuu pois tunnissa."}
+];
+let params = {...DEFAULTS};
+let rows = [];
+let sourceNote = "";
+
+/* ---------- Sliderit ---------- */
+function buildSliders(){
+  const box = $("sliders"); box.innerHTML = "";
+  for(const s of SLIDERS){
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML =
+      `<label for="p-${s.k}">${s.name}</label><output id="o-${s.k}"></output>
+       <input type="range" id="p-${s.k}" min="${s.min}" max="${s.max}" step="${s.step}">
+       <small>${s.hint}</small>`;
+    box.appendChild(row);
+    const inp = row.querySelector("input");
+    inp.value = params[s.k];
+    const show = () => { row.querySelector("output").textContent = params[s.k] + s.unit; };
+    show();
+    inp.addEventListener("input", () => { params[s.k] = parseFloat(inp.value); show(); render(); });
+  }
+}
+
+/* ---------- Datan haku ---------- */
+function isoZ(d){ return d.toISOString().replace(/\.\d+Z$/, "Z"); }
+
+async function fetchChunk(start, end){
+  const q = new URLSearchParams({
+    service:"WFS", version:"2.0.0", request:"getFeature",
+    storedquery_id:"fmi::observations::weather::hourly::simple",
+    parameters:"TA_PT1H_AVG,PRA_PT1H_ACC,RH_PT1H_AVG,WS_PT1H_AVG",
+    latlon:LATLON, maxlocations:"1",
+    starttime:isoZ(start), endtime:isoZ(end)
+  });
+  const res = await fetch(WFS + "?" + q.toString());
+  const txt = await res.text();
+  if(!res.ok) throw new Error("HTTP " + res.status + " – " + txt.slice(0,200));
+  const doc = new DOMParser().parseFromString(txt, "application/xml");
+  const ex = doc.getElementsByTagNameNS("*", "ExceptionText")[0];
+  if(ex) throw new Error(ex.textContent.trim().slice(0,300));
+  const out = [];
+  for(const el of doc.getElementsByTagNameNS("*", "BsWfsElement")){
+    const g = n => el.getElementsByTagNameNS("*", n)[0]?.textContent;
+    out.push({ t:g("Time"), name:g("ParameterName"), v:parseFloat(g("ParameterValue")) });
+  }
+  return out;
+}
+
+async function loadObservations(){
+  const days = parseInt($("days").value, 10);
+  const end = new Date();
+  const begin = new Date(end.getTime() - days*864e5);
+  const recs = [];
+  for(let s = begin.getTime(); s < end.getTime(); s += 7*864e5){
+    const e = Math.min(s + 7*864e5, end.getTime());
+    recs.push(...await fetchChunk(new Date(s), new Date(e)));
+  }
+  const map = new Map();
+  for(const r of recs){
+    if(!map.has(r.t)) map.set(r.t, {t:r.t, T:NaN, R:NaN, RH:NaN, WS:NaN});
+    const o = map.get(r.t);
+    if(r.name === "TA_PT1H_AVG") o.T = r.v;
+    else if(r.name === "PRA_PT1H_ACC") o.R = r.v;
+    else if(r.name === "RH_PT1H_AVG") o.RH = r.v;
+    else if(r.name === "WS_PT1H_AVG") o.WS = r.v;
+  }
+  const list = [...map.values()].sort((a,b) => a.t < b.t ? -1 : 1);
+  if(list.length < 24) throw new Error("Rajapinta palautti liian vähän havaintoja (" + list.length + ").");
+  return list;
+}
+
+/* ---------- Esimerkkidata (synteettinen) ---------- */
+function demoData(){
+  let seed = 7; const rnd = () => (seed = (seed*16807) % 2147483647) / 2147483647;
+  const now = new Date(); now.setMinutes(0,0,0);
+  const out = []; let raining = 0;
+  for(let i = 21*24; i >= 0; i--){
+    const d = new Date(now.getTime() - i*36e5);
+    if(raining <= 0 && rnd() < 0.02) raining = 2 + Math.floor(rnd()*8);
+    const R = raining > 0 ? +(rnd()*1.4).toFixed(1) : 0; raining--;
+    out.push({ t:d.toISOString(), T: 8 + 3*Math.sin(d.getHours()/24*6.28) + rnd(),
+               R, RH: 75 + 20*rnd(), WS: 2 + 3*rnd() });
+  }
+  return out;
+}
+
+/* ---------- Malli ---------- */
+function vpd(T, RH){
+  const es = 0.6108 * Math.exp(17.27*T / (T + 237.3));
+  return Math.max(0, es * (1 - RH/100));
+}
+
+function simulate(data, p){
+  const cap = p.cap, pmax = 15, inf = 0.15;
+  let S = 0.5*cap, P = 0;
+  let T = 5, RH = 85, WS = 2;
+  const score = [], Sarr = [], Parr = [];
+  for(const r of data){
+    if(!isNaN(r.T)) T = r.T;
+    if(!isNaN(r.RH)) RH = r.RH;
+    if(!isNaN(r.WS)) WS = r.WS;
+    const rain = isNaN(r.R) ? 0 : Math.max(0, r.R);
+
+    S += rain;
+    if(S > cap){ P += S - cap; S = cap; }
+
+    if(T >= 0){
+      const E = p.ke * vpd(T, RH) * (1 + p.kw*WS) * p.forest;   // mm/h
+      const eP = Math.min(P, E); P -= eP;
+      const eS = Math.min(S, (E - eP) * (S/cap)); S -= eS;
+      const i = Math.min(P, cap - S, inf); P -= i; S += i;
+      S -= S * p.kd / 100;
+    }
+    P = Math.min(P, pmax);
+    Sarr.push(S); Parr.push(P);
+    score.push(Math.min(100, 70*S/cap + 30*P/pmax));
+  }
+  return { score, S:Sarr, P:Parr };
+}
+
+const CLASSES = [
+  {max:25,  label:"Kuiva",                 color:"#7c8f3a", note:"Polut kantavat hyvin, ei muta-ongelmia."},
+  {max:50,  label:"Hyvä pohja",            color:"#4d6b3c", note:"Kosteaa mutta kantavaa, hyvä ajokeli."},
+  {max:75,  label:"Kostea",                color:"#8a6a44", note:"Painanteissa ja juurakoissa liukasta, savisilla kohdilla painavaa."},
+  {max:90,  label:"Märkä",                 color:"#6b4630", note:"Pehmeitä kohtia ja mutaa. Polkuja voi kuluttaa."},
+  {max:101, label:"Mutaa ja lätäköitä",    color:"#3f2a1e", note:"Maasto on kyllästynyt. Suosi kovapohjaisia reittejä."}
+];
+
+/* ---------- Näyttö ---------- */
+function fmt(x, d=1){ return isNaN(x) ? "–" : x.toFixed(d); }
+
+function render(){
+  if(!rows.length) return;
+  const sim = simulate(rows, params);
+  const n = rows.length, last = n - 1;
+  const sc = sim.score[last];
+  const cls = CLASSES.find(c => sc < c.max);
+  $("score").textContent = Math.round(sc) + " / 100";
+  $("label").textContent = cls.label;
+  $("note").textContent = cls.note;
+  $("verdict").style.background = cls.color;
+
+  const wk = rows.slice(-168);
+  const rain7 = wk.reduce((a,r) => a + (isNaN(r.R) ? 0 : r.R), 0);
+  const avg = k => { const v = wk.map(r => r[k]).filter(x => !isNaN(x)); return v.length ? v.reduce((a,b) => a+b,0)/v.length : NaN; };
+  $("s-rain").textContent = fmt(rain7) + " mm";
+  $("s-temp").textContent = fmt(avg("T")) + " °C";
+  $("s-rh").textContent = fmt(avg("RH"), 0) + " %";
+  $("out").hidden = false;
+  drawChart(sim);
+}
+
+function drawChart(sim){
+  const W = 640, H = 260, L = 34, R = 8, Tp = 10, B = 26;
+  const pw = W - L - R, ph = H - Tp - B, n = rows.length;
+  const x = i => L + (n > 1 ? i/(n-1) : 0) * pw;
+  const y = v => Tp + ph * (1 - v/100);
+  let s = "";
+  // viimeiset 7 vrk
+  const i0 = Math.max(0, n - 168);
+  s += `<rect x="${x(i0)}" y="${Tp}" width="${x(n-1) - x(i0)}" height="${ph}" fill="#c9d3c5" opacity=".55"/>`;
+  // ruudukko
+  for(const v of [0, 25, 50, 75, 100]){
+    s += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#c3cdc0" stroke-width="1"${v && v < 100 ? ' stroke-dasharray="3 4"' : ""}/>`;
+    s += `<text x="${L-6}" y="${y(v)+4}" font-size="11" text-anchor="end" fill="#5a6a60">${v}</text>`;
+  }
+  // sade
+  const maxR = Math.max(4, ...rows.map(r => isNaN(r.R) ? 0 : r.R));
+  const bw = Math.max(1, pw / n * 0.8);
+  rows.forEach((r, i) => {
+    if(!isNaN(r.R) && r.R > 0){
+      const h = Math.max(1.5, (r.R / maxR) * ph * 0.4);
+      s += `<rect x="${x(i) - bw/2}" y="${Tp + ph - h}" width="${bw}" height="${h}" fill="#2f6f80" opacity=".85"/>`;
+    }
+  });
+  // märkyysindeksi
+  s += `<polyline fill="none" stroke="#5b4332" stroke-width="2.4" stroke-linejoin="round" points="${
+    sim.score.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ")}"/>`;
+  // päivämääräakseli
+  const days = n / 24, step = Math.max(1, Math.ceil(days / 8));
+  let dayIdx = 0;
+  rows.forEach((r, i) => {
+    const d = new Date(r.t);
+    if(d.getHours() === 0){
+      if(dayIdx % step === 0){
+        s += `<text x="${x(i)}" y="${H-8}" font-size="11" text-anchor="middle" fill="#5a6a60">${d.getDate()}.${d.getMonth()+1}.</text>`;
+      }
+      dayIdx++;
+    }
+  });
+  $("chart").innerHTML = s;
+}
+
+/* ---------- Toiminnot ---------- */
+function setStatus(msg, err){ const e = $("status"); e.textContent = msg; e.className = err ? "err" : ""; }
+
+$("load").addEventListener("click", async () => {
+  setStatus("Haetaan havaintoja…");
+  $("load").disabled = true;
+  try{
+    rows = await loadObservations();
+    const lastT = new Date(rows[rows.length-1].t);
+    sourceNote = "Havainnot Nuuksion asemalta, viimeisin " + lastT.toLocaleString("fi-FI", {dateStyle:"short", timeStyle:"short"}) + ".";
+    setStatus(sourceNote);
+    render();
+  }catch(e){
+    setStatus("Haku epäonnistui: " + e.message +
+      " Jos avasit tiedoston selaimen esikatselusta, avaa se suoraan selaimessa (verkkopyynnöt voivat olla estettyjä).", true);
+  }finally{ $("load").disabled = false; }
+});
+
+$("demo").addEventListener("click", () => {
+  rows = demoData();
+  setStatus("Näytetään synteettistä esimerkkidataa, ei oikeita havaintoja.");
+  render();
+});
+
+$("reset").addEventListener("click", () => { params = {...DEFAULTS}; buildSliders(); render(); });
+
+buildSliders();
+</script>
+</body>
+</html>
