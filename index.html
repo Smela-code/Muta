@@ -115,17 +115,18 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <div class="fc" id="fc" hidden></div>
     <div class="stats">
       <div class="stat"><b id="s-rain">–</b><span>sadetta 7 vrk</span></div>
-      <div class="stat"><b id="s-evap">–</b><span>haihtunut vesi 7 vrk
+      <div class="stat"><b id="s-evap">–</b><span>poistunut vesi 7 vrk
         <button type="button" class="help" id="evapHelp" aria-expanded="false" aria-controls="h-evap"
-                aria-label="Mitä haihtunut vesi tarkoittaa?">?</button></span></div>
+                aria-label="Mitä poistunut vesi tarkoittaa?">?</button></span></div>
     </div>
-    <div class="explain solo" id="h-evap" hidden>Mallin arvio siitä, kuinka paljon vettä on haihtunut maastosta viimeisen 7 vuorokauden aikana.
-      Yksikkö on millimetri, sama kuin sateessa. Malli laskee haihtumisen tunneittain ilman kuivatusvoimasta
-      (lämpötilasta ja suhteellisesta kosteudesta), tuulesta ja kuivumisnopeudesta. Vettä haihtuu ensin lätäköistä ja sen jälkeen maaperästä.
-      Vertaa lukua viikon sateeseen: jos sadetta tuli paljon ja vettä haihtui vähän, maasto on kastunut ja pysyy märkänä.
-      Syksyllä luku on pieni, koska ilma on viileää ja kosteaa, ja kesällä se on suurempi. Pakkasella haihtuminen on nolla.
-      Luku on mallinnettu todellinen haihtuminen, joten kuivassa maastossa se on pienempi, koska haihdutettavaa vettä ei ole.
-      Valuntaa ja ennustejaksoa ei ole mukana.</div>
+    <div class="explain solo" id="h-evap" hidden>Mallin arvio siitä, kuinka paljon vettä on poistunut maan pinnalta viimeisen 7 vuorokauden aikana joko ylöspäin
+      (haihtuminen) tai alaspäin (valunta maaperään ja pois). Yksikkö on millimetri, sama kuin sateessa.
+      Haihtuminen lasketaan tunneittain ilman kuivatusvoimasta (lämpötilasta ja suhteellisesta kosteudesta), tuulesta ja kuivumisnopeudesta.
+      Valunta on valunta-säätimen mukainen osuus maaperän vedestä tunnissa. Hiekka- ja sora­maalla valunta hallitsee lukua,
+      savella ja turpeella haihtumisen osuus on suurempi. Vertaa lukua viikon sateeseen: jos sadetta tuli paljon ja vettä poistui vähän,
+      maasto on kastunut ja pysyy märkänä. Pakkasella sekä haihtuminen että valunta on pysäytetty.
+      Lukuun ei kuulu pinnalta sivusuuntaan poistuva vesi (kun lätäköt ovat täynnä) eikä ennustejakso.
+      <br><b id="evapBreak"></b></div>
     <div class="card">
       <svg id="chart" viewBox="0 0 640 260" role="img" aria-label="Märkyysindeksi ja sademäärä ajan funktiona"></svg>
       <div class="legend">
@@ -658,7 +659,7 @@ function simulate(data, p){
   const cap = p.cap, pmax = 15, inf = 0.15;
   let S = 0.5*cap, P = 0;
   let T = 5, RH = 85, WS = 2;
-  const score = [], Sarr = [], Parr = [], evap = [];
+  const score = [], Sarr = [], Parr = [], evap = [], drain = [];
   for(const r of data){
     if(!isNaN(r.T)) T = r.T;
     if(!isNaN(r.RH)) RH = r.RH;
@@ -668,20 +669,20 @@ function simulate(data, p){
     S += rain;
     if(S > cap){ P += S - cap; S = cap; }
 
-    let ev = 0;                                             // tunnin aikana haihtunut vesi (mm)
+    let ev = 0, dv = 0;                                     // tunnin aikana haihtunut ja maaperästä valunut vesi (mm)
     if(T >= 0){
       const E = p.dry * vpd(T, RH) * (1 + p.dry*WS);   // mm/h; tuulen vaikutus kasvaa avoimessa maastossa
       const eP = Math.min(P, E); P -= eP;
       const eS = Math.min(S, (E - eP) * (S/cap)); S -= eS;
       ev = eP + eS;
       const i = Math.min(P, cap - S, inf); P -= i; S += i;
-      S -= S * p.kd / 100;
+      dv = S * p.kd / 100; S -= dv;
     }
     P = Math.min(P, pmax);
-    Sarr.push(S); Parr.push(P); evap.push(ev);
+    Sarr.push(S); Parr.push(P); evap.push(ev); drain.push(dv);
     score.push(Math.min(100, 70*S/cap + 30*P/pmax));
   }
-  return { score, S:Sarr, P:Parr, evap };
+  return { score, S:Sarr, P:Parr, evap, drain };
 }
 
 const CLASSES = [
@@ -722,7 +723,7 @@ function iconSvg(i){
 
 
 /* ---------- Näyttö ---------- */
-function fmt(x, d=1){ return isNaN(x) ? "–" : x.toFixed(d); }
+function fmt(x, d=1){ return isNaN(x) ? "–" : x.toFixed(d).replace(".", ","); }
 
 function renderForecast(sim){
   const box = $("fc"); box.innerHTML = "";
@@ -757,9 +758,11 @@ function render(){
 
   const wk = rows.slice(-168);
   const rain7 = wk.reduce((a,r) => a + (isNaN(r.R) ? 0 : r.R), 0);
-  const evap7 = sim.evap.slice(Math.max(0, n - 168), n).reduce((a, b) => a + b, 0);
+  const sum7 = arr => arr.slice(Math.max(0, n - 168), n).reduce((a, b) => a + b, 0);
+  const evap7 = sum7(sim.evap), drain7 = sum7(sim.drain);
   $("s-rain").textContent = fmt(rain7) + " mm";
-  $("s-evap").textContent = fmt(evap7) + " mm";
+  $("s-evap").textContent = fmt(evap7 + drain7) + " mm";
+  $("evapBreak").textContent = "Viimeisen 7 vrk aikana haihtumista " + fmt(evap7) + " mm ja valuntaa maaperästä " + fmt(drain7) + " mm.";
   $("out").hidden = false;
   renderForecast(sim);
   drawChart(sim);
