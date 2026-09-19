@@ -19,7 +19,7 @@ h1{font-size:1.05rem;margin:0 0 2px;font-weight:700;letter-spacing:.01em}
   transition:background .4s}
 .verdict{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
 .vtext{flex:1;min-width:0}
-.wicon{flex:none;width:72px;height:72px;color:#fff}
+.wicon{flex:none;width:96px;height:64px;color:#fff}
 .wicon svg{display:block;width:100%;height:100%}
 .verdict .big{font-size:2.6rem;font-weight:800;line-height:1;letter-spacing:-.02em}
 .verdict .lbl{font-size:1.15rem;font-weight:600;margin-top:6px}
@@ -467,25 +467,30 @@ const CLASSES = [
 ];
 
 // Maastoikonit samassa järjestyksessä kuin luokat: kuiva, hyvä pohja, kostea, märkä, mutaa ja lätäköitä.
-// Kaikissa on pyörän rengas polulla; märkyys näkyy maastossa ja roiskeissa.
-const wheel = cy => `<circle cx="32" cy="${cy}" r="14" stroke-width="3.5"/><circle cx="32" cy="${cy}" r="7" stroke-width="2"/><path d="M32 ${cy-7}v14M25 ${cy}h14" stroke-width="1.5"/>`;
+// Kaikissa on maastopyörä sivulta ja nystyräinen rengas; märkyys näkyy maastossa ja roiskeissa.
+const wheel = (cx, cy) =>
+  `<circle cx="${cx}" cy="${cy}" r="12.5" stroke-width="4.5" stroke-dasharray="4.6 2.54" stroke-linecap="butt"/>` +   // nystyräkuvioitu rengas
+  `<circle cx="${cx}" cy="${cy}" r="8" stroke-width="1.6"/>` +                                                        // vanne
+  `<path d="M${cx-8} ${cy}h16M${cx} ${cy-8}v16" stroke-width="1"/>`;                                                  // pinnat
+const FRAME = `<path stroke-width="2.4" d="M26 43L46 44L63 25L41 24L46 44M41 24L26 43M63 25L70 43M63 25l-2-7h7M41 24l-1-5M37 19h8M46 44l-2 6M42 50h5"/>`;
+const BIKE = wheel(26, 43) + wheel(70, 43) + FRAME;
 const dot = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor" stroke="none"/>`;
 const ICONS = [
-  // kuiva: pölyä renkaan takana ja maa halkeillut
-  wheel(35) + `<path d="M4 52h56"/><circle cx="13" cy="46" r="3" stroke-width="2"/><circle cx="8" cy="41" r="2" stroke-width="2"/><circle cx="19" cy="42" r="1.8" stroke-width="2"/>
-   <path d="M10 58l4-3 3 3 4-2M42 58l3-3 3 3 4-2" stroke-width="2"/>`,
+  // kuiva: pölyä pyörän takana ja maa halkeillut
+  BIKE + `<path d="M2 58h92"/><circle cx="7" cy="53" r="2.6" stroke-width="1.8"/><circle cx="3.5" cy="46" r="1.8" stroke-width="1.8"/><circle cx="9" cy="46" r="1.5" stroke-width="1.8"/>
+   <path d="M20 63l3-3 3 3 3-2M62 63l3-3 3 3 3-2" stroke-width="2"/>`,
   // hyvä pohja: kova polku, heinätuppo ja pieniä kiviä
-  wheel(35) + `<path d="M4 52h56"/><path d="M53 52v-7M57 52l2-6M49 52l-2-6" stroke-width="2"/>${dot(12, 49, 1.6)}${dot(18, 49.5, 1.2)}`,
-  // kostea: tumma kostea maa ja pieniä pisaroita
-  wheel(35) + `<path d="M4 52h56"/><path d="M8 58h48" stroke-width="2" stroke-dasharray="3 4"/>${dot(14, 45, 1.8)}${dot(50, 47, 1.8)}${dot(55, 41, 1.5)}`,
+  BIKE + `<path d="M2 58h92"/><path d="M90 58v-7M93 58l1.5-5M87 58l-1.5-5" stroke-width="2"/>${dot(6, 55, 1.6)}${dot(11, 56, 1.2)}`,
+  // kostea: kostea maa ja pieniä pisaroita
+  BIKE + `<path d="M2 58h92"/><path d="M6 62.5h84" stroke-width="2" stroke-dasharray="3 4"/>${dot(6, 52, 1.8)}${dot(89, 50, 1.8)}${dot(93, 44, 1.5)}`,
   // märkä: mutainen aaltoileva pinta ja mutaa lentää renkaasta
-  wheel(35) + `<path d="M4 52c5-3 9 3 14 0s9 3 14 0 9 3 14 0 9 3 14 0"/><path d="M10 58c4-2 7 2 11 0s7 2 11 0 7 2 11 0" stroke-width="2"/>${dot(14, 44, 2)}${dot(9, 48, 1.6)}${dot(19, 40, 1.5)}`,
-  // mutaa ja lätäköitä: rengas osuu lätäkköön ja vesi roiskuu
-  wheel(32) + `<ellipse cx="32" cy="52" rx="27" ry="4.5"/><path d="M20 58h24" stroke-width="2"/>
-   <path d="M12 49c-3-5-3-10 1-14M52 49c3-5 3-10-1-14" stroke-width="2.5"/>${dot(9, 30, 2)}${dot(15, 25, 1.8)}${dot(55, 30, 2)}${dot(49, 25, 1.8)}${dot(6, 39, 1.5)}${dot(58, 39, 1.5)}`
+  BIKE + `<path d="M0 58c5-3 11 3 16 0s11 3 16 0 11 3 16 0 11 3 16 0 11 3 16 0 11 3 16 0"/><path d="M6 63c4-2 8 2 12 0s8 2 12 0 8 2 12 0 8 2 12 0 8 2 12 0" stroke-width="2"/>${dot(7, 45, 2)}${dot(3, 50, 1.5)}${dot(10, 39, 1.5)}`,
+  // mutaa ja lätäköitä: etupyörä osuu lätäkköön ja vesi roiskuu
+  BIKE + `<path d="M2 58h47"/><ellipse cx="72" cy="58" rx="23" ry="4.5"/><path d="M62 63h20" stroke-width="2"/>
+   ${dot(52, 50, 2)}${dot(56, 45, 1.6)}${dot(91, 46, 2)}${dot(86, 40, 1.6)}${dot(93, 38, 1.4)}${dot(50, 55, 1.4)}`
 ];
 function iconSvg(i){
-  return `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${ICONS[i]}</svg>`;
+  return `<svg viewBox="0 0 96 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${ICONS[i]}</svg>`;
 }
 
 
