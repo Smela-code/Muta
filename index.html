@@ -19,7 +19,7 @@ h1{font-size:1.05rem;margin:0 0 2px;font-weight:700;letter-spacing:.01em}
   transition:background .4s}
 .verdict{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
 .vtext{flex:1;min-width:0}
-.wicon{flex:none;width:68px;height:68px;color:#fff}
+.wicon{flex:none;width:72px;height:72px;color:#fff}
 .wicon svg{display:block;width:100%;height:100%}
 .verdict .big{font-size:2.6rem;font-weight:800;line-height:1;letter-spacing:-.02em}
 .verdict .lbl{font-size:1.15rem;font-weight:600;margin-top:6px}
@@ -466,21 +466,23 @@ const CLASSES = [
   {max:101, label:"Mutaa ja lätäköitä",    color:"#3f2a1e", note:"Maasto on kyllästynyt. Suosi kovapohjaisia reittejä."}
 ];
 
-// Sääikonit samassa järjestyksessä kuin luokat: kuiva, hyvä pohja, kostea, märkä, mutaa ja lätäköitä.
-const CLOUD = "M14 44a9 9 0 0 1-1-18a13 13 0 0 1 25-4a10.5 10.5 0 0 1 3 22z";
+// Maastoikonit samassa järjestyksessä kuin luokat: kuiva, hyvä pohja, kostea, märkä, mutaa ja lätäköitä.
+// Kaikissa on pyörän rengas polulla; märkyys näkyy maastossa ja roiskeissa.
+const wheel = cy => `<circle cx="32" cy="${cy}" r="14" stroke-width="3.5"/><circle cx="32" cy="${cy}" r="7" stroke-width="2"/><path d="M32 ${cy-7}v14M25 ${cy}h14" stroke-width="1.5"/>`;
+const dot = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor" stroke="none"/>`;
 const ICONS = [
-  // aurinko
-  `<circle cx="32" cy="32" r="10"/><path d="M32 8v8M32 48v8M8 32h8M48 32h8M15 15l5.6 5.6M43.4 43.4L49 49M15 49l5.6-5.6M43.4 20.6L49 15"/>`,
-  // aurinko pilven takana
-  `<circle cx="22" cy="22" r="8"/><path d="M22 8v3M8 22h3M33 22h3M12.1 12.1l2.1 2.1M31.9 12.1l-2.1 2.1M12.1 31.9l2.1-2.1"/>
-   <path style="fill:var(--bn)" transform="translate(18 20) scale(.85)" d="${CLOUD}"/>`,
-  // pilvinen ja sumuinen
-  `<path transform="translate(4 -1)" d="${CLOUD}"/><path d="M14 52h30M22 58h30"/>`,
-  // sadepilvi
-  `<path transform="translate(4 -3)" d="${CLOUD}"/><path d="M22 46l-3 8M33 46l-3 8M44 46l-3 8"/>`,
-  // rankkasade ja lätäkkö
-  `<path transform="translate(4 -5)" d="${CLOUD}"/><path d="M17 41l-2.5 6M27 41l-2.5 6M37 41l-2.5 6M47 41l-2.5 6"/>
-   <ellipse cx="32" cy="57" rx="19" ry="3.5"/><path d="M26 57h12" stroke-width="2"/>`
+  // kuiva: pölyä renkaan takana ja maa halkeillut
+  wheel(35) + `<path d="M4 52h56"/><circle cx="13" cy="46" r="3" stroke-width="2"/><circle cx="8" cy="41" r="2" stroke-width="2"/><circle cx="19" cy="42" r="1.8" stroke-width="2"/>
+   <path d="M10 58l4-3 3 3 4-2M42 58l3-3 3 3 4-2" stroke-width="2"/>`,
+  // hyvä pohja: kova polku, heinätuppo ja pieniä kiviä
+  wheel(35) + `<path d="M4 52h56"/><path d="M53 52v-7M57 52l2-6M49 52l-2-6" stroke-width="2"/>${dot(12, 49, 1.6)}${dot(18, 49.5, 1.2)}`,
+  // kostea: tumma kostea maa ja pieniä pisaroita
+  wheel(35) + `<path d="M4 52h56"/><path d="M8 58h48" stroke-width="2" stroke-dasharray="3 4"/>${dot(14, 45, 1.8)}${dot(50, 47, 1.8)}${dot(55, 41, 1.5)}`,
+  // märkä: mutainen aaltoileva pinta ja mutaa lentää renkaasta
+  wheel(35) + `<path d="M4 52c5-3 9 3 14 0s9 3 14 0 9 3 14 0 9 3 14 0"/><path d="M10 58c4-2 7 2 11 0s7 2 11 0 7 2 11 0" stroke-width="2"/>${dot(14, 44, 2)}${dot(9, 48, 1.6)}${dot(19, 40, 1.5)}`,
+  // mutaa ja lätäköitä: rengas osuu lätäkköön ja vesi roiskuu
+  wheel(32) + `<ellipse cx="32" cy="52" rx="27" ry="4.5"/><path d="M20 58h24" stroke-width="2"/>
+   <path d="M12 49c-3-5-3-10 1-14M52 49c3-5 3-10-1-14" stroke-width="2.5"/>${dot(9, 30, 2)}${dot(15, 25, 1.8)}${dot(55, 30, 2)}${dot(49, 25, 1.8)}${dot(6, 39, 1.5)}${dot(58, 39, 1.5)}`
 ];
 function iconSvg(i){
   return `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${ICONS[i]}</svg>`;
@@ -516,7 +518,6 @@ function render(){
   $("label").textContent = cls.label;
   $("note").textContent = cls.note;
   $("verdict").style.background = cls.color;
-  $("verdict").style.setProperty("--bn", cls.color);
   $("wicon").innerHTML = iconSvg(CLASSES.indexOf(cls));
 
   const wk = rows.slice(-168);
