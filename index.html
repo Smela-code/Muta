@@ -55,6 +55,7 @@ summary{cursor:pointer;font-weight:600}
 .placeRow{display:flex;gap:8px}
 .placeRow input{flex:1;min-width:0}
 .station select+small,.station .placeRow+select{margin-top:8px}
+.station small.err{color:#8a2c1f}
 .station small{display:block;color:var(--soft);font-size:.78rem;margin-top:4px}
 .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 button,select{font:inherit;padding:9px 14px;border-radius:9px;border:1px solid var(--line);
@@ -95,10 +96,9 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
   </div>
 
   <div class="controls">
-    <button class="primary" id="load">Hae havainnot</button>
-    <button id="demo" title="Synteettinen esimerkkidata, ei oikeita havaintoja">Esimerkkidata</button>
+    <button class="primary" id="load">Tee ennuste</button>
   </div>
-  <div id="status" role="status">Paina "Hae havainnot".</div>
+  <div id="status" role="status">Paina "Tee ennuste".</div>
   <div id="dbg" class="foot"></div>
 
   <section id="out" hidden>
@@ -428,28 +428,57 @@ function setSoilParams(k){
   render();
 }
 
+let soilCache = null;   // viimeisin onnistunut GTK-haku: {key, cat, text}
+const trailKey = t => t ? t.lat.toFixed(5) + "," + t.lon.toFixed(5) : null;
+
+function setSoilInfo(msg, err){
+  const el = $("soilInfo"); el.textContent = msg; el.className = err ? "err" : "";
+}
+
+function resetSoilDefaults(){
+  params.cap = DEFAULTS.cap; params.kd = DEFAULTS.kd;
+  sliderSync.cap?.(); sliderSync.kd?.();
+  render();
+}
+
 async function applySoilMode(){
-  const mode = $("soilSel").value, info = $("soilInfo");
+  const mode = $("soilSel").value;
   if(mode === "auto"){
-    if(!trail){ info.textContent = "Valitse polun paikka, niin maalaji haetaan GTK:n maaperäkartasta."; return; }
+    if(!trail){
+      resetSoilDefaults();
+      setSoilInfo("Polun paikkaa ei ole valittu, joten käytössä ovat oletusarvot. Hae paikka, niin maalaji haetaan GTK:n kartasta.");
+      return;
+    }
+    const key = trailKey(trail);
+    if(soilCache && soilCache.key === key && soilCache.cat){          // sama paikka: käytetään aiempaa hakua
+      setSoilParams(soilCache.cat);
+      setSoilInfo(soilCache.text + " Käytössä: " + soilSummary(soilCache.cat) + ".");
+      return;
+    }
     const mine = trail;
-    info.textContent = "Haetaan maalajia GTK:lta…";
+    setSoilInfo("Haetaan maalajia GTK:lta…");
     try{
       const r = await lookupSoil(trail.lat, trail.lon);
-      if(trail !== mine) return;                            // paikka vaihtui haun aikana
-      if(!r.cat){ info.textContent = r.text + " Maalajia ei voitu käyttää, valitse maaperä käsin."; return; }
+      if(trail !== mine || $("soilSel").value !== "auto") return;       // paikka tai valinta vaihtui haun aikana
+      if(!r.cat){
+        resetSoilDefaults();
+        setSoilInfo(r.text + " Maalajia ei voitu käyttää, joten käytössä ovat oletusarvot. Valitse maaperä käsin.", true);
+        return;
+      }
+      soilCache = {key, cat:r.cat, text:r.text};
       setSoilParams(r.cat);
-      info.textContent = r.text + " Käytössä: " + soilSummary(r.cat) + ". Kuviot ovat 2–6 hehtaarin kokoisia, joten tulos on suuntaa antava.";
+      setSoilInfo(r.text + " Käytössä: " + soilSummary(r.cat) + ". Kuviot ovat 2–6 hehtaarin kokoisia, joten tulos on suuntaa antava.");
     }catch(e){
-      info.textContent = "Maalajin haku epäonnistui (" + e.message + "). Valitse maaperä käsin.";
+      if(trail !== mine || $("soilSel").value !== "auto") return;
+      resetSoilDefaults();
+      setSoilInfo("Maalajin haku GTK:lta epäonnistui (" + e.message + "), joten käytössä ovat oletusarvot. Valitse maaperä käsin.", true);
     }
   }else if(mode === "default"){
-    params.cap = DEFAULTS.cap; params.kd = DEFAULTS.kd;
-    sliderSync.cap?.(); sliderSync.kd?.(); render();
-    info.textContent = "Oletusarvot: kapasiteetti " + DEFAULTS.cap + " mm, valunta " + kdText(DEFAULTS.kd) + " %/h.";
+    resetSoilDefaults();
+    setSoilInfo("Oletusarvot: kapasiteetti " + DEFAULTS.cap + " mm, valunta " + kdText(DEFAULTS.kd) + " %/h.");
   }else if(SOILS[mode]){
     setSoilParams(mode);
-    info.textContent = "Käsin valittu: " + soilSummary(mode) + ".";
+    setSoilInfo("Käsin valittu: " + soilSummary(mode) + ".");
   }
 }
 
@@ -611,33 +640,6 @@ async function fetchForecast(loc){
     }catch(e){ lastErr = e; }
   }
   throw lastErr || new Error("ei ennustetta");
-}
-
-/* ---------- Esimerkkidata (synteettinen) ---------- */
-function demoData(){
-  let seed = 7; const rnd = () => (seed = (seed*16807) % 2147483647) / 2147483647;
-  const now = new Date(); now.setMinutes(0,0,0);
-  const out = []; let raining = 0;
-  for(let i = 21*24; i >= 0; i--){
-    const d = new Date(now.getTime() - i*36e5);
-    if(raining <= 0 && rnd() < 0.02) raining = 2 + Math.floor(rnd()*8);
-    const R = raining > 0 ? +(rnd()*1.4).toFixed(1) : 0; raining--;
-    out.push({ t:d.toISOString(), T: 8 + 3*Math.sin(d.getHours()/24*6.28) + rnd(),
-               R, RH: 75 + 20*rnd(), WS: 2 + 3*rnd() });
-  }
-  return out;
-}
-
-function demoForecast(base){
-  let seed = 11; const rnd = () => (seed = (seed*16807) % 2147483647) / 2147483647;
-  const t0 = new Date(base[base.length-1].t).getTime();
-  const out = [];
-  for(let i = 1; i <= FC_DAYS*24; i++){
-    const d = new Date(t0 + i*36e5);
-    const R = (i > 28 && i < 40) ? +(rnd()*1.2).toFixed(1) : 0;
-    out.push({t:d.toISOString(), T:7 + 3*Math.sin(d.getHours()/24*6.28), R, RH:80 + 12*rnd(), WS:2 + 2*rnd(), fc:true});
-  }
-  return out;
 }
 
 /* ---------- Malli ---------- */
@@ -862,13 +864,6 @@ $("load").addEventListener("click", async () => {
       $("dbg").appendChild(a);
     }
   }finally{ $("load").disabled = false; }
-});
-
-$("demo").addEventListener("click", () => {
-  rows = demoData();
-  fcRows = demoForecast(rows);
-  setStatus("Näytetään synteettistä esimerkkidataa ja -ennustetta, ei oikeita havaintoja.");
-  render();
 });
 
 $("reset").addEventListener("click", () => { params = {...DEFAULTS}; buildSliders(); render(); });
