@@ -46,6 +46,8 @@ summary{cursor:pointer;font-weight:600}
 .help{width:24px;height:24px;padding:0;border-radius:50%;font-size:.8rem;font-weight:700;line-height:1;
   background:var(--paper);border:1.5px solid var(--soft);color:var(--soft);cursor:pointer}
 .help[aria-expanded="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
+.stat .help{width:20px;height:20px;font-size:.72rem;margin-left:6px;vertical-align:middle}
+.explain.solo{background:var(--paper);margin:-4px 0 12px}
 .explain{grid-column:1/-1;background:var(--bg);border-radius:9px;padding:9px 11px;
   color:var(--ink);font-size:.82rem;line-height:1.45}
 .station{margin-bottom:12px}
@@ -113,8 +115,17 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <div class="fc" id="fc" hidden></div>
     <div class="stats">
       <div class="stat"><b id="s-rain">–</b><span>sadetta 7 vrk</span></div>
-      <div class="stat"><b id="s-evap">–</b><span>haihtuminen 7 vrk (mallin arvio)</span></div>
+      <div class="stat"><b id="s-evap">–</b><span>haihtunut vesi 7 vrk
+        <button type="button" class="help" id="evapHelp" aria-expanded="false" aria-controls="h-evap"
+                aria-label="Mitä haihtunut vesi tarkoittaa?">?</button></span></div>
     </div>
+    <div class="explain solo" id="h-evap" hidden>Mallin arvio siitä, kuinka paljon vettä on haihtunut maastosta viimeisen 7 vuorokauden aikana.
+      Yksikkö on millimetri, sama kuin sateessa. Malli laskee haihtumisen tunneittain ilman kuivatusvoimasta
+      (lämpötilasta ja suhteellisesta kosteudesta), tuulesta ja kuivumisnopeudesta. Vettä haihtuu ensin lätäköistä ja sen jälkeen maaperästä.
+      Vertaa lukua viikon sateeseen: jos sadetta tuli paljon ja vettä haihtui vähän, maasto on kastunut ja pysyy märkänä.
+      Syksyllä luku on pieni, koska ilma on viileää ja kosteaa, ja kesällä se on suurempi. Pakkasella haihtuminen on nolla.
+      Luku on mallinnettu todellinen haihtuminen, joten kuivassa maastossa se on pienempi, koska haihdutettavaa vettä ei ole.
+      Valuntaa ja ennustejaksoa ei ole mukana.</div>
     <div class="card">
       <svg id="chart" viewBox="0 0 640 260" role="img" aria-label="Märkyysindeksi ja sademäärä ajan funktiona"></svg>
       <div class="legend">
@@ -889,6 +900,11 @@ $("reset").addEventListener("click", () => { params = {...DEFAULTS}; buildSlider
 
 buildSliders();
 initSoil();
+$("evapHelp").addEventListener("click", () => {
+  const box = $("h-evap"), open = box.hidden;
+  box.hidden = !open;
+  $("evapHelp").setAttribute("aria-expanded", String(open));
+});
 $("placeGo").addEventListener("click", searchPlace);
 $("place").addEventListener("keydown", e => { if(e.key === "Enter") searchPlace(); });
 $("placeSel").addEventListener("change", () => {
