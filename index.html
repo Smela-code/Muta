@@ -38,7 +38,12 @@ summary{cursor:pointer;font-weight:600}
 .row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin-top:12px;font-size:.9rem}
 .row output{font-variant-numeric:tabular-nums;color:var(--soft)}
 .row input{grid-column:1/-1;width:100%;accent-color:var(--moss)}
-.row small{grid-column:1/-1;color:var(--soft);font-size:.78rem;margin-top:-2px}
+.row .val{display:inline-flex;align-items:center;gap:8px}
+.help{width:24px;height:24px;padding:0;border-radius:50%;font-size:.8rem;font-weight:700;line-height:1;
+  background:var(--paper);border:1.5px solid var(--soft);color:var(--soft);cursor:pointer}
+.help[aria-expanded="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
+.explain{grid-column:1/-1;background:var(--bg);border-radius:9px;padding:9px 11px;
+  color:var(--ink);font-size:.82rem;line-height:1.45}
 .station{margin-bottom:12px}
 .station label{display:block;font-size:.85rem;font-weight:600;margin-bottom:4px}
 .station input,.station select{width:100%;font:inherit;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
@@ -91,7 +96,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
         <span><i style="background:var(--mud)"></i>Märkyysindeksi</span>
         <span><i style="background:var(--water)"></i>Sade (mm/h)</span>
         <span><i style="background:#7a6a99"></i>Ilmankosteus (%)</span>
-        <span><i style="background:none;border-top:2px dashed #5b4332;height:0;width:14px;border-radius:0;vertical-align:3px"></i>Ennuste</span>
+        <span><i style="background:#c9d3c5"></i>Ennuste</span>
       </div>
     </div>
   </section>
@@ -120,16 +125,16 @@ let lastUrl = "";
 
 const DEFAULTS = { cap:25, ke:0.20, forest:0.5, kw:0.10, kd:0.4 };
 const SLIDERS = [
-  {k:"cap",    name:"Maaperän varastokapasiteetti", min:10,  max:50,  step:1,    unit:" mm",
-   hint:"Kuinka paljon vettä pintamaa ja aluskasvillisuus pidättävät ennen lätäköitymistä."},
-  {k:"ke",     name:"Haihtumiskerroin",             min:0.05,max:0.5, step:0.01, unit:"",
-   hint:"mm/h per kPa. Suurempi arvo tarkoittaa nopeampaa kuivumista."},
-  {k:"forest", name:"Metsäkerroin",                 min:0.1, max:1,   step:0.05, unit:"",
-   hint:"1 = avoin maasto, pienempi = varjoisa ja tuulensuojainen metsä."},
-  {k:"kw",     name:"Tuulen vaikutus",              min:0,   max:0.3, step:0.01, unit:"",
-   hint:"Haihtumisen lisäys per m/s tuulta."},
-  {k:"kd",     name:"Valunta maaperästä",           min:0.1, max:1.0, step:0.05, unit:" %/h",
-   hint:"Osuus maaperän vedestä, joka valuu pois tunnissa."}
+  {k:"cap", name:"Maaperän varastokapasiteetti", min:10, max:50, step:1, unit:" mm",
+   help:"Kuinka paljon sadevettä pintamaa, humus ja aluskasvillisuus pystyvät pidättämään, ennen kuin maa on kyllästynyt ja vesi alkaa jäädä lätäköiksi. Pieni arvo sopii ohuelle maakerrokselle tai tiiviille maalle, joka kyllästyy nopeasti. Suuri arvo sopii paksulle humus- tai turvekerrokselle, joka imee paljon vettä. Sama vesimäärä näyttää suuremmalla kapasiteetilla vähemmän märältä."},
+  {k:"ke", name:"Haihtumiskerroin", min:0.05, max:0.5, step:0.01, unit:"",
+   help:"Perusnopeus, jolla vesi haihtuu maastosta (mm tunnissa per kPa). Malli kertoo sen ilman kuivatusvoimalla, joka lasketaan lämpötilasta ja suhteellisesta kosteudesta. Lämmin ja kuiva ilma kuivattaa paljon, viileä ja kostea syysilma lähes ei lainkaan. Suurempi arvo kuivattaa maastoa nopeammin. Ero näkyy eniten kesällä, koska syksyllä kuivatusvoima on pieni."},
+  {k:"forest", name:"Metsäkerroin", min:0.1, max:1, step:0.05, unit:"",
+   help:"Kuinka paljon metsä hidastaa haihtumista verrattuna avoimeen maastoon. Arvo 1 vastaa aurinkoista ja tuulista aukeaa paikkaa. Pieni arvo sopii varjoisaan ja tuulelta suojaiseen kuusimetsään, jossa maa pysyy märkänä pitkään. Käytä pientä arvoa, jos reitit kulkevat tiheässä metsässä, ja suurempaa, jos ajat kallioilla ja harjuilla."},
+  {k:"kw", name:"Tuulen vaikutus", min:0, max:0.3, step:0.01, unit:"",
+   help:"Kuinka paljon tuuli nopeuttaa haihtumista. Arvo kertoo haihtumisen lisäyksen jokaista tuulen m/s kohti: esimerkiksi 0,10 ja 5 m/s tuuli tekee haihtumisesta 1,5-kertaisen. Arvo 0 poistaa tuulen vaikutuksen kokonaan. Asema mittaa tuulen yleensä avoimemmassa paikassa kuin missä ajat, joten metsäkerroin pienentää tuulen vaikutusta myös käytännössä."},
+  {k:"kd", name:"Valunta maaperästä", min:0.1, max:1.0, step:0.05, unit:" %/h",
+   help:"Osuus maaperän vedestä, joka valuu tai suotautuu pois tunnissa. Suuri arvo sopii nopeasti vettä läpäisevälle hiekka- ja harjumaalle, joka kuivuu sateen jälkeen nopeasti. Pieni arvo sopii savelle, turpeelle ja painanteille, jotka pitävät vettä. Arvolla 0,4 % vesimäärä puolittuu noin viikossa, arvolla 1,0 % noin kolmessa päivässä. Pakkasella valunta ja haihtuminen on pysäytetty."}
 ];
 let params = {...DEFAULTS};
 let rows = [];      // havainnot
@@ -143,15 +148,24 @@ function buildSliders(){
   for(const s of SLIDERS){
     const row = document.createElement("div"); row.className = "row";
     row.innerHTML =
-      `<label for="p-${s.k}">${s.name}</label><output id="o-${s.k}"></output>
+      `<label for="p-${s.k}">${s.name}</label>
+       <span class="val"><output id="o-${s.k}"></output>
+         <button type="button" class="help" aria-expanded="false" aria-controls="h-${s.k}"
+                 aria-label="Mitä parametri ${s.name} tarkoittaa?">?</button></span>
        <input type="range" id="p-${s.k}" min="${s.min}" max="${s.max}" step="${s.step}">
-       <small>${s.hint}</small>`;
+       <div class="explain" id="h-${s.k}" hidden>${s.help}</div>`;
     box.appendChild(row);
     const inp = row.querySelector("input");
     inp.value = params[s.k];
     const show = () => { row.querySelector("output").textContent = params[s.k] + s.unit; };
     show();
     inp.addEventListener("input", () => { params[s.k] = parseFloat(inp.value); show(); render(); });
+    const btn = row.querySelector("button.help"), ex = row.querySelector(".explain");
+    btn.addEventListener("click", () => {
+      const open = ex.hidden;
+      ex.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+    });
   }
 }
 
@@ -397,9 +411,9 @@ function demoForecast(base){
   let seed = 11; const rnd = () => (seed = (seed*16807) % 2147483647) / 2147483647;
   const t0 = new Date(base[base.length-1].t).getTime();
   const out = [];
-  for(let i = 1; i <= 5*24; i++){
+  for(let i = 1; i <= FC_DAYS*24; i++){
     const d = new Date(t0 + i*36e5);
-    const R = (i > 30 && i < 42) ? +(rnd()*1.2).toFixed(1) : 0;
+    const R = (i > 28 && i < 40) ? +(rnd()*1.2).toFixed(1) : 0;
     out.push({t:d.toISOString(), T:7 + 3*Math.sin(d.getHours()/24*6.28), R, RH:80 + 12*rnd(), WS:2 + 2*rnd(), fc:true});
   }
   return out;
@@ -455,7 +469,7 @@ function renderForecast(sim){
   if(!fcRows.length){ box.hidden = true; return; }
   const all = rows.concat(fcRows);
   const t0 = new Date(rows[rows.length-1].t).getTime();
-  for(const [h, lab] of [[24, "Huomenna"], [48, "2 vrk päästä"], [72, "3 vrk päästä"], [120, "5 vrk päästä"], [168, "7 vrk päästä"]]){
+  for(const [h, lab] of [[24, "Huomenna"], [48, "2 vrk päästä"], [72, "3 vrk päästä"]]){
     const idx = all.findIndex(r => new Date(r.t).getTime() >= t0 + h*36e5);
     if(idx < 0) continue;
     const sc = sim.score[idx], cls = CLASSES.find(c => sc < c.max);
@@ -489,7 +503,8 @@ function render(){
 }
 
 const FETCH_DAYS = 21;    // malliin haettava data (vrk)
-const SHOW_DAYS = 14;     // graafissa näytettävä jakso (vrk)
+const SHOW_DAYS = 14;     // graafissa näytettävä havaintojakso (vrk)
+const FC_DAYS = 3;        // näytettävä ennustejakso (vrk)
 
 function drawChart(sim){
   const W = 640, H = 260, L = 34, R = 8, Tp = 18, B = 26;
@@ -502,6 +517,10 @@ function drawChart(sim){
   const y = v => Tp + ph * (1 - v/100);
   const pts = (arr, from, to) => arr.slice(from, to + 1).map((v, k) => x(from + k).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
   let s = "";
+  // ennusteen tausta
+  if(n - 1 > nowI){
+    s += `<rect x="${x(nowI)}" y="${Tp}" width="${x(n-1) - x(nowI)}" height="${ph}" fill="#c9d3c5" opacity=".55"/>`;
+  }
   // ruudukko
   for(const v of [0, 25, 50, 75, 100]){
     s += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#c3cdc0" stroke-width="1"${v && v < 100 ? ' stroke-dasharray="3 4"' : ""}/>`;
@@ -568,7 +587,7 @@ $("load").addEventListener("click", async () => {
     try{
       const fc = await fetchForecast(loc);
       const lastObs = new Date(rows[rows.length-1].t).getTime();
-      fcRows = fc.list.filter(o => new Date(o.t).getTime() > lastObs);
+      fcRows = fc.list.filter(o => { const t = new Date(o.t).getTime(); return t > lastObs && t <= lastObs + FC_DAYS*864e5; });
       msg += " Ennuste: " + fc.label + ", " + (fcRows.length/24).toFixed(1).replace(".", ",") + " vrk.";
     }catch(e2){
       fcRows = [];
