@@ -34,6 +34,11 @@ summary{cursor:pointer;font-weight:600}
 .row output{font-variant-numeric:tabular-nums;color:var(--soft)}
 .row input{grid-column:1/-1;width:100%;accent-color:var(--moss)}
 .row small{grid-column:1/-1;color:var(--soft);font-size:.78rem;margin-top:-2px}
+.station{margin-bottom:12px}
+.station label{display:block;font-size:.85rem;font-weight:600;margin-bottom:4px}
+.station input{width:100%;font:inherit;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
+  background:var(--paper);color:var(--ink)}
+.station small{display:block;color:var(--soft);font-size:.78rem;margin-top:4px}
 .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 button,select{font:inherit;padding:9px 14px;border-radius:9px;border:1px solid var(--line);
   background:var(--paper);color:var(--ink)}
@@ -49,6 +54,14 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
   <h1>Nuuksion maastomuta-arvio</h1>
   <p class="sub">Arvio polkujen märkyydestä Ilmatieteen laitoksen tuntihavainnoista</p>
 
+  <div class="station">
+    <label for="station">Havaintoasema</label>
+    <input id="station" list="stationList" value="Espoo Nuuksio" autocomplete="off" spellcheck="false"
+           placeholder="Kirjoita aseman nimi tai valitse listasta">
+    <datalist id="stationList"></datalist>
+    <small id="stationInfo">Ladataan asemalistaa…</small>
+  </div>
+
   <div class="controls">
     <button class="primary" id="load">Hae havainnot</button>
     <select id="days" aria-label="Havaintojakson pituus">
@@ -59,6 +72,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <button id="demo" title="Synteettinen esimerkkidata, ei oikeita havaintoja">Esimerkkidata</button>
   </div>
   <div id="status" role="status">Paina "Hae havainnot".</div>
+  <div id="dbg" class="foot"></div>
 
   <section id="out" hidden>
     <div class="verdict" id="verdict">
@@ -99,8 +113,8 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 "use strict";
 const $ = id => document.getElementById(id);
 const WFS = "https://opendata.fmi.fi/wfs";
-// Nuuksion havaintoaseman koordinaatit; rajapinta palauttaa lähimmän aseman.
-const LATLON = "60.29128,24.56788";
+let stations = [];   // [{id, name}]
+let lastUrl = "";
 
 const DEFAULTS = { cap:25, ke:0.20, forest:0.5, kw:0.10, kd:0.4 };
 const SLIDERS = [
@@ -137,52 +151,122 @@ function buildSliders(){
   }
 }
 
+/* ---------- Asemalista ---------- */
+async function loadStations(){
+  for(const extra of ["&networkid=121", ""]){
+    try{
+      const res = await fetch(WFS + "?service=WFS&version=2.0.0&request=getFeature&storedquery_id=fmi::ef::stations" + extra);
+      const doc = new DOMParser().parseFromString(await res.text(), "application/xml");
+      const list = [];
+      for(const f of doc.getElementsByTagNameNS("*", "EnvironmentalMonitoringFacility")){
+        const id = f.getElementsByTagNameNS("*", "identifier")[0]?.textContent?.trim();
+        const names = [...f.getElementsByTagNameNS("*", "name")];
+        const nm = (names.find(n => /locationcode\/name/.test(n.getAttribute("codeSpace") || "")) || names[0])?.textContent?.trim();
+        if(id && nm) list.push({id, name:nm});
+      }
+      if(list.length){
+        list.sort((a,b) => a.name.localeCompare(b.name, "fi"));
+        return list;
+      }
+    }catch(e){ /* kokeillaan seuraavaa */ }
+  }
+  return [];
+}
+
+function fillStationList(){
+  const dl = $("stationList"); dl.innerHTML = "";
+  for(const st of stations){
+    const o = document.createElement("option"); o.value = st.name; dl.appendChild(o);
+  }
+  const info = $("stationInfo");
+  if(stations.length){
+    info.textContent = stations.length + " asemaa listassa. Voit myös kirjoittaa fmisid-numeron.";
+  }else{
+    info.textContent = "Asemalistaa ei saatu ladattua. Kirjoita paikan nimi tai aseman fmisid-numero.";
+  }
+}
+
+function resolveStation(input){
+  const v = input.trim();
+  if(/^\d+$/.test(v)) return {fmisid:v, name:"asema " + v};
+  const low = v.toLowerCase();
+  const exact = stations.find(s => s.name.toLowerCase() === low);
+  if(exact) return {fmisid:exact.id, name:exact.name};
+  const part = stations.filter(s => s.name.toLowerCase().includes(low));
+  if(part.length === 1) return {fmisid:part[0].id, name:part[0].name};
+  return {place:v, name:v};
+}
+
 /* ---------- Datan haku ---------- */
 function isoZ(d){ return d.toISOString().replace(/\.\d+Z$/, "Z"); }
 
-async function fetchChunk(start, end){
+function buildUrl(kind, loc, start, end){
   const q = new URLSearchParams({
     service:"WFS", version:"2.0.0", request:"getFeature",
-    storedquery_id:"fmi::observations::weather::hourly::simple",
-    parameters:"TA_PT1H_AVG,PRA_PT1H_ACC,RH_PT1H_AVG,WS_PT1H_AVG",
-    latlon:LATLON, maxlocations:"1",
     starttime:isoZ(start), endtime:isoZ(end)
   });
-  const res = await fetch(WFS + "?" + q.toString());
+  if(kind === "simple"){
+    q.set("storedquery_id", "fmi::observations::weather::simple");
+    q.set("parameters", "t2m,r_1h,rh,ws_10min");
+    q.set("timestep", "60");
+  }else{
+    q.set("storedquery_id", "fmi::observations::weather::hourly::simple");
+    q.set("parameters", "TA_PT1H_AVG,PRA_PT1H_ACC,RH_PT1H_AVG,WS_PT1H_AVG");
+  }
+  if(loc.fmisid) q.set("fmisid", loc.fmisid); else q.set("place", loc.place);
+  return WFS + "?" + q.toString();
+}
+
+const PARAM = { t2m:"T", ta_pt1h_avg:"T", r_1h:"R", pra_pt1h_acc:"R",
+                rh:"RH", rh_pt1h_avg:"RH", ws_10min:"WS", ws_pt1h_avg:"WS" };
+
+async function fetchChunk(kind, loc, start, end){
+  const url = buildUrl(kind, loc, start, end);
+  lastUrl = lastUrl || url;
+  const res = await fetch(url);
   const txt = await res.text();
-  if(!res.ok) throw new Error("HTTP " + res.status + " – " + txt.slice(0,200));
+  if(!res.ok){
+    lastUrl = url;
+    throw new Error("HTTP " + res.status + " – " + txt.replace(/<[^>]+>/g, " ").trim().slice(0,200));
+  }
   const doc = new DOMParser().parseFromString(txt, "application/xml");
   const ex = doc.getElementsByTagNameNS("*", "ExceptionText")[0];
-  if(ex) throw new Error(ex.textContent.trim().slice(0,300));
+  if(ex){ lastUrl = url; throw new Error(ex.textContent.trim().slice(0,300)); }
   const out = [];
   for(const el of doc.getElementsByTagNameNS("*", "BsWfsElement")){
     const g = n => el.getElementsByTagNameNS("*", n)[0]?.textContent;
-    out.push({ t:g("Time"), name:g("ParameterName"), v:parseFloat(g("ParameterValue")) });
+    out.push({ t:g("Time"), name:(g("ParameterName") || "").toLowerCase(), v:parseFloat(g("ParameterValue")) });
   }
   return out;
 }
 
-async function loadObservations(){
+async function loadObservations(loc){
   const days = parseInt($("days").value, 10);
-  const end = new Date();
+  const end = new Date(); end.setMinutes(0, 0, 0);            // tasatunti
   const begin = new Date(end.getTime() - days*864e5);
-  const recs = [];
-  for(let s = begin.getTime(); s < end.getTime(); s += 7*864e5){
-    const e = Math.min(s + 7*864e5, end.getTime());
-    recs.push(...await fetchChunk(new Date(s), new Date(e)));
+  const CH = 6*864e5;                                          // 6 vrk / kysely
+  let lastErr = null;
+  for(const kind of ["simple", "hourly"]){
+    lastUrl = "";
+    try{
+      const recs = [];
+      for(let st = begin.getTime(); st < end.getTime(); st += CH){
+        const en = Math.min(st + CH, end.getTime());
+        recs.push(...await fetchChunk(kind, loc, new Date(st), new Date(en)));
+      }
+      const map = new Map();
+      for(const r of recs){
+        const key = PARAM[r.name]; if(!key) continue;
+        if(!map.has(r.t)) map.set(r.t, {t:r.t, T:NaN, R:NaN, RH:NaN, WS:NaN});
+        map.get(r.t)[key] = r.v;
+      }
+      const list = [...map.values()].filter(o => !isNaN(o.T) || !isNaN(o.R))
+                                    .sort((a,b) => a.t < b.t ? -1 : 1);
+      if(list.length >= 24) return list;
+      lastErr = new Error("Kysely (" + kind + ") palautti " + list.length + " havaintoa.");
+    }catch(e){ lastErr = e; }
   }
-  const map = new Map();
-  for(const r of recs){
-    if(!map.has(r.t)) map.set(r.t, {t:r.t, T:NaN, R:NaN, RH:NaN, WS:NaN});
-    const o = map.get(r.t);
-    if(r.name === "TA_PT1H_AVG") o.T = r.v;
-    else if(r.name === "PRA_PT1H_ACC") o.R = r.v;
-    else if(r.name === "RH_PT1H_AVG") o.RH = r.v;
-    else if(r.name === "WS_PT1H_AVG") o.WS = r.v;
-  }
-  const list = [...map.values()].sort((a,b) => a.t < b.t ? -1 : 1);
-  if(list.length < 24) throw new Error("Rajapinta palautti liian vähän havaintoja (" + list.length + ").");
-  return list;
+  throw lastErr || new Error("Ei havaintoja.");
 }
 
 /* ---------- Esimerkkidata (synteettinen) ---------- */
@@ -311,17 +395,29 @@ function drawChart(sim){
 function setStatus(msg, err){ const e = $("status"); e.textContent = msg; e.className = err ? "err" : ""; }
 
 $("load").addEventListener("click", async () => {
-  setStatus("Haetaan havaintoja…");
+  const loc = resolveStation($("station").value);
+  setStatus("Haetaan havaintoja: " + loc.name + "…");
+  $("dbg").innerHTML = "";
   $("load").disabled = true;
   try{
-    rows = await loadObservations();
+    rows = await loadObservations(loc);
+    try{ localStorage.setItem("muta-station", $("station").value); }catch(_){}
     const lastT = new Date(rows[rows.length-1].t);
-    sourceNote = "Havainnot Nuuksion asemalta, viimeisin " + lastT.toLocaleString("fi-FI", {dateStyle:"short", timeStyle:"short"}) + ".";
-    setStatus(sourceNote);
+    const rainOk = rows.filter(r => !isNaN(r.R)).length / rows.length;
+    let msg = loc.name + ": " + rows.length + " tuntihavaintoa, viimeisin " +
+      lastT.toLocaleString("fi-FI", {dateStyle:"short", timeStyle:"short"}) + ".";
+    if(rainOk < 0.5) msg += " Asema ei raportoi sademäärää kunnolla, valitse toinen asema.";
+    setStatus(msg, rainOk < 0.5);
     render();
   }catch(e){
-    setStatus("Haku epäonnistui: " + e.message +
-      " Jos avasit tiedoston selaimen esikatselusta, avaa se suoraan selaimessa (verkkopyynnöt voivat olla estettyjä).", true);
+    setStatus("Haku epäonnistui (" + loc.name + "): " + e.message +
+      " Kokeile toista asemaa tai avaa tiedosto suoraan selaimessa.", true);
+    if(lastUrl){
+      const a = document.createElement("a");
+      a.href = lastUrl; a.target = "_blank"; a.rel = "noopener";
+      a.textContent = "Avaa viimeisin kysely selaimessa";
+      $("dbg").appendChild(a);
+    }
   }finally{ $("load").disabled = false; }
 });
 
@@ -334,6 +430,8 @@ $("demo").addEventListener("click", () => {
 $("reset").addEventListener("click", () => { params = {...DEFAULTS}; buildSliders(); render(); });
 
 buildSliders();
+try{ const saved = localStorage.getItem("muta-station"); if(saved) $("station").value = saved; }catch(_){}
+loadStations().then(list => { stations = list; fillStationList(); });
 </script>
 </body>
 </html>
