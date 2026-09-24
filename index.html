@@ -66,6 +66,22 @@ button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
 button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--water);outline-offset:2px}
 #status{font-size:.82rem;color:var(--soft);min-height:1.3em}
 #status.err{color:#8a2c1f}
+.docs .doc{font-size:.88rem;line-height:1.5;margin-top:10px}
+.doc .docdate{color:var(--soft);font-size:.78rem;margin:0 0 4px}
+.doc h2{font-size:1.05rem;margin:24px 0 6px;padding-top:10px;border-top:1px solid var(--line)}
+.doc h3{font-size:.95rem;margin:16px 0 4px}
+.doc p,.doc li{margin:6px 0}
+.doc ul,.doc ol{padding-left:20px;margin:6px 0}
+.doc .tw{overflow-x:auto;margin:8px 0}
+.doc table{border-collapse:collapse;font-size:.8rem;min-width:100%}
+.doc table.wide{min-width:560px}
+.doc th,.doc td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
+.doc th{background:var(--bg)}
+.doc pre.formula{background:var(--bg);border-radius:8px;padding:8px 10px;overflow-x:auto;margin:6px 0;
+  font:.82rem/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre}
+.doc code{font:.78rem ui-monospace,Menlo,Consolas,monospace;background:var(--bg);padding:1px 4px;border-radius:4px;word-break:break-word}
+.doc a{color:var(--water)}
+.doc .flow{background:var(--bg);border-radius:8px;padding:8px 10px}
 .foot{font-size:.78rem;color:var(--soft);margin-top:14px}
 </style>
 </head>
@@ -143,6 +159,75 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <div id="sliders"></div>
     <div class="controls" style="margin-top:14px"><button id="reset">Palauta oletukset</button></div>
   </details>
+
+  <details class="docs" id="docs">
+<summary>Tekninen dokumentaatio</summary>
+<div class="doc">
+<p class="docdate">Kuvaa työkalun tilan 20.9.2026.</p>
+<h2>1. Tarkoitus ja rajaukset</h2>
+<p>Työkalu arvioi maastopyöräpolkujen märkyyttä indeksinä 0–100 sääasemien havaintojen, sääennusteen ja maaperätiedon perusteella.</p>
+<ul><li><b>Indeksi on suhteellinen ja kalibroimaton.</b> Arvo 0 tarkoittaa kuivaa ja 100 kyllästynyttä maastoa, jossa on lätäköitä. Se ei ole fysikaalinen mittaus.</li><li><b>Malli kuvaa yhden pisteen vesitasetta.</b> Siinä on kaksi vesivarastoa: maaperä ja pinnan lätäköt. Maastonmuodot, kasvipeite ja polun tiivistyminen eivät ole mukana.</li><li><b>Käyttötarkoitus on harrastuskäytön ajokelin arviointi.</b> Työkalu ei sovellu rakennus- tai maankäytön suunnitteluun. GTK huomauttaa itse, ettei sen maaperäaineistoa pidä käyttää sellaisenaan yksityiskohtaista tietoa vaativiin tarkoituksiin.</li><li><b>Talvi on rajattu pois.</b> Alle 0 °C:n lämpötilassa haihtuminen ja valunta pysäytetään, eikä lumen kertymistä tai sulamista mallinneta.</li></ul>
+<h2>2. Kokonaisrakenne</h2>
+<p>Työkalu koostuu neljästä vaiheesta: paikannus, datan haku, tuntimalli ja esitys. Kaikki laskenta tehdään selaimessa.</p>
+<p class="flow"><b>Polun paikka</b> (nimi tai koordinaatit) → <b>Paikannus</b> (OSM Nominatim) → <b>lähin sääasema</b> ja ennusteen piste sekä <b>maalaji</b> (GTK) → <b>havainnot</b> 21 vrk ja <b>ennuste</b> 5 vrk (FMI) sekä <b>parametrit</b> (kapasiteetti, valunta) → <b>tuntimalli</b> (vesitase) → <b>märkyysindeksi</b> 0–100 ja luokka</p>
+<p>Paikan koordinaateista haetaan lähin sääasema, sääennuste ja maalaji. Maalaji asettaa kahden parametrin oletusarvot, ja malli laskee indeksin tunti tunnilta.</p>
+<p>Havaintoja haetaan 21 vuorokauden ajalta, ja kuvaajassa näkyy niistä viimeiset 14 vuorokautta. Ensimmäiset 7 vuorokautta toimivat mallin alkulämmittelynä. Ennustetta käytetään 5 vuorokautta.</p>
+<h2>3. Matemaattinen malli</h2>
+<p>Malli on kahden vesivaraston tuntiaskelinen vesitase: maaperän varasto S ja pinnan lätäkkövarasto P, molemmat millimetreinä.</p>
+<div class="tw"><table class="wide"><thead><tr><th>Symboli</th><th>Merkitys</th><th>Yksikkö</th><th>Lähde</th></tr></thead><tbody><tr><td>S</td><td>maaperän vesivarasto, 0 ≤ S ≤ C</td><td>mm</td><td>malli</td></tr><tr><td>P</td><td>pinnan lätäkkövarasto, 0 ≤ P ≤ P<sub>max</sub></td><td>mm</td><td>malli</td></tr><tr><td>R</td><td>sade tunnin aikana</td><td>mm</td><td>FMI</td></tr><tr><td>T</td><td>ilman lämpötila</td><td>°C</td><td>FMI</td></tr><tr><td>RH</td><td>suhteellinen kosteus</td><td>%</td><td>FMI</td></tr><tr><td>W</td><td>tuulen nopeus</td><td>m/s</td><td>FMI</td></tr><tr><td>C</td><td>maaperän varastokapasiteetti</td><td>mm</td><td>säädin tai GTK</td></tr><tr><td>k<sub>e</sub></td><td>kuivumisnopeus</td><td>mm/(h·kPa)</td><td>säädin</td></tr><tr><td>k<sub>d</sub></td><td>valunta maaperästä</td><td>%/h</td><td>säädin tai GTK</td></tr></tbody></table></div>
+<h3>Laskenta tunnin aikana</h3>
+<p>Jokaisella tunnilla lasketaan seuraavat vaiheet tässä järjestyksessä.</p>
+<ol><li><b>Sade täyttää maaperän, ja ylimenevä osa jää lätäkköksi.</b><pre class="formula">S ← S + R,     jos S &gt; C:   P ← P + (S − C),   S ← C</pre></li><li><b>Ilman kuivatusvoima (VPD) lasketaan lämpötilasta ja kosteudesta.</b> Kyllästyshöyrynpaine e<sub>s</sub> on FAO-56-ohjeen Tetensin kaavan muoto.<pre class="formula">e<sub>s</sub>(T) = 0,6108 · exp( 17,27 · T / (T + 237,3) )   [kPa]
+VPD = max( 0 ;  e<sub>s</sub>(T) · (1 − RH/100) )</pre></li><li><b>Mahdollinen haihtuminen E lasketaan, kun T ≥ 0 °C.</b> Muuten E = 0. Tuulen vaikutus on sidottu samaan parametriin k<sub>e</sub>, jolloin avoimessa maastossa tuuli kuivattaa enemmän kuin metsässä.<pre class="formula">E = k<sub>e</sub> · VPD · (1 + k<sub>e</sub> · W)   [mm/h]</pre></li><li><b>Haihtuminen poistaa vettä ensin lätäköistä ja sen jälkeen maaperästä.</b> Maaperästä haihtuu sitä vähemmän, mitä kuivempi maa on.<pre class="formula">e<sub>P</sub> = min(P, E)
+e<sub>S</sub> = min( S ,  (E − e<sub>P</sub>) · S/C )</pre></li><li><b>Lätäkkö imeytyy maaperään, jos maaperässä on tilaa.</b><pre class="formula">i = min( P ,  C − S ,  i<sub>max</sub> ),    i<sub>max</sub> = 0,15 mm/h</pre></li><li><b>Maaperästä valuu vettä pois vakio-osuus tunnissa.</b><pre class="formula">D = S · k<sub>d</sub> / 100</pre></li><li><b>Lätäkkövarasto rajataan.</b> P ← min(P, P<sub>max</sub>), P<sub>max</sub> = 15 mm. Ylimenevä vesi poistuu pinnalta sivusuuntaan eikä kuulu tunnuslukuihin.</li><li><b>Märkyysindeksi M yhdistää molemmat varastot.</b><pre class="formula">M = min( 100 ;  70 · S/C + 30 · P/P<sub>max</sub> )</pre></li></ol>
+<div class="tw"><table><thead><tr><th>Indeksi M</th><th>Luokka</th></tr></thead><tbody><tr><td>alle 25</td><td>Kuiva</td></tr><tr><td>25–50</td><td>Hyvä pohja</td></tr><tr><td>50–75</td><td>Kostea</td></tr><tr><td>75–90</td><td>Märkä</td></tr><tr><td>yli 90</td><td>Mutaa ja lätäköitä</td></tr></tbody></table></div>
+<h3>Kuivumisen käyttäytyminen</h3>
+<p>Sateettomana aikana maaperän vesi vähenee likimäärin eksponentiaalisesti. Valunta ja haihtuminen vaikuttavat samassa yhtälössä.</p>
+<pre class="formula">dS/dt ≈ −( k<sub>d</sub>/100 + E/C ) · S</pre>
+<p>Syysäällä (6 °C, RH 90 %, 3 m/s, oletusparametrit) E on 0,012 mm/h eli 0,29 mm/vrk, ja E/C on 0,0005 1/h. Valunta (0,004 1/h) hallitsee silloin kuivumista. Kesäsäällä (20 °C, RH 60 %) E on 0,12 mm/h eli 2,9 mm/vrk, ja E/C on 0,005 1/h eli sama suuruusluokka kuin valunta.</p>
+<div class="tw"><table><thead><tr><th>Valunta k<sub>d</sub></th><th>Puoliintumisaika (pelkästään valunta)</th></tr></thead><tbody><tr><td>0,1 %/h</td><td>29 vrk</td></tr><tr><td>0,25 %/h</td><td>12 vrk</td></tr><tr><td>0,4 %/h (oletus)</td><td>7,2 vrk</td></tr><tr><td>1,0 %/h</td><td>2,9 vrk</td></tr></tbody></table></div>
+<h3>Alkutila, puuttuvat arvot ja ennuste</h3>
+<ul><li><b>Alkutila:</b> S = 0,5 C ja P = 0 ensimmäisellä tunnilla. Oletusparametreilla ja syysäällä alkutilan paino on 7 vuorokauden jälkeen noin 47 % ja 21 vuorokauden jälkeen noin 10 %. Kyllästävä sade (S = C) poistaa alkutilan vaikutuksen kokonaan, joten kuvaajan alkupää on osin alkuarvauksen varassa.</li><li><b>Puuttuva T, RH tai W:</b> käytetään viimeisintä tunnettua arvoa. Ennen ensimmäistä havaintoa käytetään arvoja 5 °C, 85 % ja 2 m/s.</li><li><b>Puuttuva tai negatiivinen sade:</b> käsitellään nollana. FMI merkitsee arvolla −1, ettei sadetta ollut, arvolla 0, että sadetta kertyi alle 0,1 mm, ja arvolla NaN, että tieto puuttuu.</li><li><b>Ennuste:</b> Malli jatkaa samaa laskentaa ennustetuilla arvoilla. Harmonie-malli antaa sateen kertyneenä, joten tuntisade on kertymän erotus edelliseen tuntiin (ei alle nollan, ensimmäinen tunti 0).</li></ul>
+<h3>Tunnusluvut ja ennustekortit</h3>
+<ul><li><b>Sade 7 vrk</b> on sateen summa viimeiseltä 168 tunnilta.</li><li><b>Poistunut vesi 7 vrk</b> on summa e<sub>P</sub> + e<sub>S</sub> + D viimeiseltä 168 tunnilta. Ennuste ja pinnan ylivuoto eivät ole mukana.</li><li><b>Ennustekortit</b> näyttävät indeksin 24, 48 ja 72 tunnin päässä sekä vastaavan vuorokauden ennustetun minimi- ja maksimilämpötilan.</li></ul>
+<h2>4. Parametrit ja niiden valinnan perustelut</h2>
+<p>Mallissa on kolme käyttäjän säädettävää parametria, muutama kiinteä vakio ja neljä datasta tulevaa sääsuuretta. Kyllästyshöyrynpaineen vakioita lukuun ottamatta arvoja ei ole johdettu mittauksista, vaan ne ovat asiantuntija-arvioita, jotka kalibroidaan omilla havainnoilla (kohta 6).</p>
+<h3>4.1 Käyttäjän säädettävät parametrit</h3>
+<div class="tw"><table class="wide"><thead><tr><th>Parametri</th><th>Oletus</th><th>Alue</th><th>Vaikutus mallissa</th><th>Perustelu</th></tr></thead><tbody><tr><td>Maaperän varastokapasiteetti C</td><td>25 mm</td><td>10–50 mm</td><td>Kuinka paljon sadetta maa ottaa vastaan ennen lätäköitymistä, ja indeksin normalisointi</td><td>Oletuksella 10–20 mm:n sade nostaa indeksiä selvästi ja yli 25 mm:n sade tuottaa lätäköitä. Alue kattaa ohuen kalliopinnan (10 mm) ja paksun turvekerroksen (45–50 mm).</td></tr><tr><td>Kuivumisnopeus k<sub>e</sub></td><td>0,10 mm/(h·kPa)</td><td>0,02–0,30</td><td>Haihtumisen voimakkuus ja samalla tuulen vaikutus</td><td>Oletus antaa syksyllä noin 0,3 mm/vrk ja kesällä noin 3 mm/vrk (20 °C, RH 60 %, 3 m/s). Ohjearvot: 0,05 tiheä kuusimetsä, 0,10 sekametsä, 0,20 tai yli avoin kallio tai harju.</td></tr><tr><td>Valunta k<sub>d</sub></td><td>0,4 %/h</td><td>0,1–1,0 %/h</td><td>Kuinka nopeasti maaperän vesi poistuu</td><td>Oletus vastaa noin 7 vuorokauden puoliintumisaikaa. Alue kattaa hitaan saven ja turpeen (0,1 %/h, 29 vrk) ja nopean soran ja hiekan (1,0 %/h, 2,9 vrk).</td></tr></tbody></table></div>
+<p>Parametrit on rajattu niin, että jokainen vaikuttaa eri ilmiöön: C sateen vaikutuksen suuruuteen, k<sub>e</sub> kuivumiseen lämpimällä säällä ja k<sub>d</sub> palautumisaikaan. Aiemmin erillään olleet haihtumiskerroin, metsäkerroin ja tuulen kerroin yhdistettiin, koska vain niiden tulo vaikutti tulokseen eikä niitä voinut erottaa toisistaan havainnoista.</p>
+<p>Valunta on mallissa lineaarinen varasto, koska se on yksinkertaisin kuvaus. Todellinen valunta riippuu kyllästysasteesta ja maan vedenläpäisevyydestä.</p>
+<h3>4.2 Kiinteät parametrit</h3>
+<div class="tw"><table><thead><tr><th>Parametri</th><th>Arvo</th><th>Perustelu</th></tr></thead><tbody><tr><td>Lätäkkövaraston enimmäismäärä P<sub>max</sub></td><td>15 mm</td><td>Lätäköt ovat paikallisia painanteita, joten varasto on pienempi kuin maaperän kapasiteetti. Ylimenevä vesi poistuu pinnalta sivusuuntaan. Arvio.</td></tr><tr><td>Imeytymisnopeus i<sub>max</sub></td><td>0,15 mm/h (3,6 mm/vrk)</td><td>Rajoittaa lätäkön tyhjenemistä. Kyllästyneessä maassa imeytymistä ei tapahdu (C − S = 0), joten lätäköt pysyvät päiviä. Arvio.</td></tr><tr><td>Alkutila</td><td>S = 0,5 C, P = 0</td><td>Neutraali arvaus. Vaikutus vaimenee ajan myötä (kohta 3).</td></tr><tr><td>Indeksin painot</td><td>70 / 30</td><td>Maaperän kosteus heikentää polun kantavuutta jo ennen lätäköitä (enintään 70 pistettä), ja lätäköt kertovat kyllästymisestä (enintään 30). Arvio.</td></tr><tr><td>Luokkarajat</td><td>25 / 50 / 75 / 90</td><td>Ylin luokka (yli 90) vaatii kyllästyneen maan ja yli 10 mm lätäköitä, koska 70 + 30 · P/15 &gt; 90 kun P &gt; 10 mm.</td></tr><tr><td>Kyllästyshöyrynpaineen vakiot</td><td>0,6108 kPa; 17,27; 237,3 °C</td><td>FAO-56-ohjeen kaava, jota käytetään laajasti haihdunnan laskennassa.</td></tr><tr><td>Pakkasraja</td><td>0 °C</td><td>Alle nollan haihtuminen ja valunta pysäytetään, koska maa on jäässä. Yksinkertaistus.</td></tr><tr><td>Aika-askel ja jaksot</td><td>1 h; haku 21 vrk; kuvaaja 14 vrk; ennuste 5 vrk</td><td>21 vuorokautta antaa noin 10 %:n alkutilan painon nykyhetkelle. Ennusteen 5 vuorokauden pituus on käyttäjän valinta, ja ennusteen epävarmuus kasvaa horisontin mukana.</td></tr></tbody></table></div>
+<h3>4.3 Datasta tulevat suureet</h3>
+<div class="tw"><table><thead><tr><th>Suure</th><th>Lähde ja kenttä</th><th>Käyttö mallissa</th></tr></thead><tbody><tr><td>Lämpötila T</td><td>FMI: t2m (havainto), Temperature (ennuste)</td><td>Kuivatusvoima ja pakkasraja</td></tr><tr><td>Suhteellinen kosteus RH</td><td>FMI: rh, Humidity</td><td>Kuivatusvoima</td></tr><tr><td>Tuulen nopeus W</td><td>FMI: ws_10min, WindSpeedMS</td><td>Tuulen vaikutus haihtumiseen</td></tr><tr><td>Sade R</td><td>FMI: r_1h, Precipitation1h tai PrecipitationAmount (erotuksena)</td><td>Vesitaseen syöte</td></tr><tr><td>Maalaji</td><td>GTK: pohjamaa (BASE_SEDIMENT) ja pintamaa (SURFACE_SEDIMENT)</td><td>Parametrien C ja k<sub>d</sub> oletusarvot</td></tr><tr><td>Havaintoasema</td><td>FMI:n asemaluettelon koordinaatit ja haversine-etäisyys (R = 6371 km)</td><td>Lähimmän aseman valinta</td></tr></tbody></table></div>
+<p>Malli käyttää vain neljää sääsuuretta, koska ne ovat laajimmin saatavilla ja riittävät vesitaseen ja haihtumisen kuvaamiseen. Säteily ja pilvisyys jätettiin pois, koska niitä ei mitata kaikilla asemilla ja metsässä niiden vaikutus maahan on pieni. Osa auringon vaikutuksesta tulee mukaan kuivatusvoiman päivärytmin kautta.</p>
+<p>Lähin asema valitaan suoraviivaisella etäisyydellä. Merisääasemat on poistettu asemalistasta nimen perusteella, koska ne eivät edusta metsäpolkujen säätä. Sade on paikallista, joten lähinkin asema voi erota polun oloista.</p>
+<h3>4.4 Maalajien muunnos parametreiksi</h3>
+<p>GTK:n maalajikoodit ryhmitellään seitsemäksi luokaksi, jotka asettavat kapasiteetin C ja valunnan k<sub>d</sub> oletusarvot. Jos pisteessä on luokiteltavissa oleva pintamaa, se ratkaisee luokan, muuten pohjamaa. Pintakerros määrää, miten sadevesi imeytyy, mutta kerrosrakennetta ei mallinneta.</p>
+<div class="tw"><table class="wide"><thead><tr><th>Luokka</th><th>GTK-maalajit</th><th>C (mm)</th><th>k<sub>d</sub> (%/h)</th><th>Perustelu</th></tr></thead><tbody><tr><td>Kallio ja kivikko</td><td>kalliopaljastuma, kalliomaa, rakka, rapakallio, lohkareita, kiviä</td><td>10</td><td>1,0</td><td>Ohut tai olematon maakerros ei pidä vettä, joten kuivuu nopeasti.</td></tr><tr><td>Sora ja hiekka</td><td>sora, hiekka, liejuinen hiekka, karkearakeinen maalaji</td><td>30</td><td>1,0</td><td>Karkea maa läpäisee vettä hyvin, ja paksu kerros mahdollistaa suuren varaston.</td></tr><tr><td>Hiekka- ja soramoreeni</td><td>hiekka- tai soramoreeni, sekalajitteinen maalaji</td><td>25</td><td>0,5</td><td>Sekalajitteinen maa on keskitasoa ja lähellä oletusarvoa.</td></tr><tr><td>Hienoainesmoreeni</td><td>hienoainesmoreeni</td><td>25</td><td>0,25</td><td>Hienoaines hidastaa veden läpipääsyä.</td></tr><tr><td>Hieta ja hiesu</td><td>karkea ja hieno hieta, hiesu, liejuiset hieta ja hiesu, hienojakoinen maalaji</td><td>25</td><td>0,25</td><td>Siltti pidättää vettä hyvin ja läpäisee sitä hitaasti.</td></tr><tr><td>Savi ja lieju</td><td>savi, liejusavi, lieju, liejuinen hienorakeinen maalaji</td><td>15</td><td>0,1</td><td>Hyvin hidas läpäisevyys: pinta kyllästyy nopeasti ja lätäköt pysyvät.</td></tr><tr><td>Turve ja soistuma</td><td>saraturve, rahkaturve, turvetuotantoalue, soistuma, ohut ja paksu turvekerros</td><td>45</td><td>0,15</td><td>Orgaaninen maa pidättää paljon vettä kuin sieni, ja vesi purkautuu hitaasti.</td></tr></tbody></table></div>
+<p>Luokittelemattomat GTK-koodit (täytemaa, kartoittamaton, vesi) eivät aseta parametreja, ja silloin käytetään oletusarvoja tai käsin valittua maaperää. Taulukon arvot perustuvat maalajien yleisiin vedenläpäisevyys- ja pidätysominaisuuksiin (karkea = nopea valunta, hienojakoinen ja orgaaninen = hidas). Niitä ei ole johdettu mittauksista eikä kirjallisuudesta.</p>
+<h2>5. Ulkoiset datalähteet ja lisenssit</h2>
+<p>Työkalu käyttää kolmea ulkoista tietolähdettä, ja kaikkien käyttö edellyttää lähteen mainitsemista.</p>
+<div class="tw"><table class="wide"><thead><tr><th>Lähde</th><th>Käyttö</th><th>Rajapinta</th><th>Lisenssi</th><th>Ehdot</th></tr></thead><tbody><tr><td>Ilmatieteen laitos (FMI), avoin data: havainnot</td><td>Tuntihavainnot: T, RH, W, R</td><td>WFS 2.0, <code>opendata.fmi.fi/wfs</code>. Kysely <code>fmi::observations::weather::simple</code> (t2m, r_1h, rh, ws_10min, timestep 60), varakysely <code>fmi::observations::weather::hourly::simple</code></td><td>CC BY 4.0</td><td>Lähde mainittava muodossa "Ilmatieteen laitoksen avoin data, &lt;aineiston nimi&gt;". Latauspalveluun enintään 20 000 kyselyä vuorokaudessa ja 600 kyselyä viidessä minuutissa</td></tr><tr><td>FMI: asemaluettelo</td><td>Asemien nimet ja koordinaatit</td><td><code>fmi::ef::stations</code> (networkid=121)</td><td>CC BY 4.0</td><td>Sama kuin yllä</td></tr><tr><td>FMI: ennuste</td><td>5 vuorokauden ennuste polun koordinaateista</td><td><code>fmi::forecast::edited::weather::scandinavia::point::simple</code> (10 vrk). Varana <code>fmi::forecast::harmonie::surface::point::simple</code> ja <code>::timevaluepair</code> (noin 2,5 vrk)</td><td>CC BY 4.0</td><td>Sama kuin yllä</td></tr><tr><td>Geologian tutkimuskeskus (GTK): Maaperä 1:20 000 / 1:50 000 ja 1:200 000</td><td>Pinta- ja pohjamaan maalaji</td><td>ArcGIS REST, <code>gtkdata.gtk.fi/arcgis/rest/services/Hasu/maapera/MapServer</code>. Tasot 16 (pintamaa) ja 18 (pohjamaa), varana 5 ja 6 (1:200 000)</td><td>GTK:n avoin lisenssi, yhteensopiva CC BY 4.0:n kanssa</td><td>Lähde (GTK) ja aineiston nimi mainittava</td></tr><tr><td>OpenStreetMap Nominatim</td><td>Paikan nimestä koordinaatit</td><td><code>nominatim.openstreetmap.org/search</code> (format=jsonv2, countrycodes=fi)</td><td>ODbL 1.0</td><td>Lähdemerkintä "© OpenStreetMap-tekijät". Enintään 1 pyyntö sekunnissa, tunnistettava Referer tai User-Agent, ei automaattista täydennystä</td></tr></tbody></table></div>
+<p>Työkalun alaviite sisältää lähdemerkinnät: "Data: Ilmatieteen laitos, avoin data. Paikannus: © OpenStreetMap-tekijät (Nominatim, ODbL). Maaperädata: Geologian tutkimuskeskus (GTK), avoin lisenssi." FMI:n lisenssin esimerkkimuoto on tarkempi (aineiston nimi mukana), joten alaviitettä voi täsmentää.</p>
+<h3>Aineistojen sisältö ja ikä</h3>
+<ul><li><b>FMI:n havainnot</b> ovat UTC-ajassa, ja työkalu näyttää ne selaimen paikallisessa ajassa. Kaikki asemat eivät mittaa sadetta. Silloin sadearvo puuttuu (NaN), ja malli tulkitsee sen nollaksi.</li><li><b>GTK:n Maaperä 1:20 000 / 1:50 000</b> on tuotettu vuosina 1972–2007. Pohjamaakuvion vähimmäiskoko on yleensä 2 hehtaaria ja pintamaakuvion yleensä 4 hehtaaria. Pintamaa kuvataan vain, kun pohjamaan päällä on 0,4–0,9 metrin kerros.</li><li><b>GTK:n Maaperä 1:200 000</b> on tuotettu vuosina 2002–2009, ja se kattaa koko Suomen. Työkalu käyttää sitä vain, jos tarkempaa kartoitusta ei ole pisteessä.</li></ul>
+<h3>Tietosuoja ja tallennus</h3>
+<ul><li>Laskenta tehdään selaimessa, eikä työkalulla ole omaa palvelinta.</li><li>Paikan nimi lähetetään OpenStreetMapin Nominatim-palvelulle. Koordinaatit lähetetään FMI:lle ja GTK:lle.</li><li>Selain tallentaa paikallisesti (localStorage) viimeksi haetun paikan, valitun aseman ja maaperävalinnan.</li><li>Jos selain estää pyynnön (esimerkiksi CORS) tai palvelu ei vastaa, työkalu näyttää virheen ja käyttää oletusarvoja tai käsin syötettyä tietoa.</li></ul>
+<h2>6. Rajoitukset, epävarmuudet ja kalibrointi</h2>
+<p>Malli on karkea, kalibroimaton ja yhden pisteen kuvaus, joten tulos on suuntaa antava arvio ajokelistä.</p>
+<h3>6.1 Mallin yksinkertaistukset</h3>
+<ul><li><b>Yksi maakerros:</b> Pinta- ja pohjamaa eivät ole mallissa erillisiä kerroksia. Esimerkiksi ohut hiekka savipohjan päällä käyttäytyy toisin kuin kumpikaan yksin, koska vesi voi pysähtyä saven päälle.</li><li><b>Ei maastonmuotoja:</b> Rinne, painanne ja valuma-alue vaikuttavat vahvasti lätäköiden syntyyn, mutta niitä ei mallinneta.</li><li><b>Ei kasvipeitettä eikä säteilyä:</b> Latvuksen pidättämä sade, pilvisyys ja auringon säteily sisältyvät vain keskimääräisesti kuivumisnopeuteen k<sub>e</sub>.</li><li><b>Ei lunta eikä routaa:</b> Alle 0 °C:n jaksoilla malli vain pysäyttää kuivumisen. Lumen sulaminen ja roudan vaikutus jäävät huomiotta.</li><li><b>Ei polun kulumista tai käyttöä:</b> Tiivistynyt tai kulunut polku kuivuu ja märkääntyy eri tavalla kuin ympäröivä maasto.</li><li><b>Lineaarinen valunta:</b> Todellinen valunta riippuu kyllästysasteesta, joten yksinkertaistus voi virhearvioida erityisesti hyvin kuivia ja hyvin märkiä jaksoja.</li></ul>
+<h3>6.2 Datan epävarmuudet</h3>
+<ul><li><b>Havaintoasema:</b> Lähin asema ei aina edusta polun säätä, ja sade on paikallista. Jos asema ei mittaa sadetta, malli aliarvioi märkyyttä, ja työkalu varoittaa, kun alle puolessa tunneista on sadetieto.</li><li><b>Ennuste:</b> Sadeennuste on ennusteen epävarmin osa, ja epävarmuus kasvaa 5 vuorokauden horisontissa. Harmonie-varakysely kattaa vain noin 2,5 vuorokautta.</li><li><b>GTK:n maaperäkartta:</b> Kuviot ovat 2–6 hehtaarin kokoisia ja aineisto on osin yli 15 vuotta vanhaa. Tulos kuvaa alueen yleistä maalajia, ei yksittäistä lätäkköpaikkaa.</li><li><b>Paikannus:</b> Paikan nimi antaa yleensä alueen keskipisteen. Tarkka polun sijainti kannattaa syöttää koordinaatteina.</li></ul>
+<h3>6.3 Kalibrointisuositus</h3>
+<p>Kalibrointi tehdään omilla ajokerta-arvioilla, ja ohjeellinen tavoite on vähintään 20–30 havaintoa eri sääoloissa.</p>
+<ol><li>Kirjaa jokaisesta ajokerrasta päivämäärä, paikka ja oma arvio asteikolla 1–5 (kuiva–kurainen).</li><li>Vertaa arvioita mallin indeksiin samalta hetkeltä ja luokkiin.</li><li>Säädä yksi parametri kerrallaan. Jos indeksi nousee liian korkeaksi kohtuullisen sateen jälkeen, kasvata C. Jos maasto pysyy mallissa liian kauan märkänä, kasvata k<sub>d</sub>. Jos kesäinen kuivuminen on liian hidasta, kasvata k<sub>e</sub>.</li><li>Kalibroi paikkakohtaisesti, koska eri reitit voivat vaatia eri arvot.</li><li>Pidä parametrien määrä pienenä (kolme), jotta malli ei ylisovitu.</li></ol>
+<h2>7. Lähteet</h2>
+<p>Lähteet on luettu hakutuloksista ja osin avaamalla sivuja. Tarkista lisenssiehdot alkuperäislähteistä ennen jatkokäyttöä.</p>
+<ul><li><a href="https://www.ilmatieteenlaitos.fi/avoin-data-lisenssi" target="_blank" rel="noopener">FMI: Lisenssi ja käyttöehdot</a> (CC BY 4.0, lähdemerkintä, kyselyrajat)</li><li><a href="https://www.ilmatieteenlaitos.fi/kysymyksia-avoimesta-datasta" target="_blank" rel="noopener">FMI: Kysymyksiä avoimesta datasta</a> (sadearvot −1, 0 ja NaN, UTC-aika)</li><li><a href="https://www.ilmatieteenlaitos.fi/avoin-data-pikaohje" target="_blank" rel="noopener">FMI: Avoin data – pikaohje</a> (WFS 2.0 -latauspalvelu)</li><li><a href="https://www.ilmatieteenlaitos.fi/avoin-data" target="_blank" rel="noopener">FMI: Avoin data</a></li><li><a href="https://www.gtk.fi/en/open-licence/" target="_blank" rel="noopener">GTK: Avoin lisenssi</a> (yhteensopiva CC BY 4.0:n kanssa)</li><li><a href="https://hakku.gtk.fi/fi/locations?id=1" target="_blank" rel="noopener">GTK: Maaperä 1:20 000 / 1:50 000 (Hakku)</a> (pintamaan määritelmä ja kuviokoko)</li><li><a href="https://ckan.ymparisto.fi/dataset/maapera-1-20-000-1-50-000" target="_blank" rel="noopener">Syke: Maaperä 1:20 000 / 1:50 000, metatiedot</a> (tuotantovuodet 1972–2007, käyttörajoitukset)</li><li><a href="http://weppi.gtk.fi/aineistot/mp-opas/korkokuva.htm" target="_blank" rel="noopener">GTK: Maaperäkartan käyttöopas</a> (pohjamaa 1 m:n syvyydessä, pintamaa 0,4–0,9 m)</li><li><a href="https://gtkdata.gtk.fi/arcgis/rest/services/Hasu/maapera/MapServer/layers" target="_blank" rel="noopener">GTK: ArcGIS REST -palvelu Hasu/maapera</a> (tasot, kentät ja maalajikoodit)</li><li><a href="https://avoindata.suomi.fi/data/organization/geologian-tutkimuskeskus" target="_blank" rel="noopener">GTK Avoindata.fi:ssä</a> (Maaperä 1:200 000, tuotantovuodet 2002–2009)</li><li><a href="https://operations.osmfoundation.org/policies/nominatim/" target="_blank" rel="noopener">OpenStreetMap Foundation: Nominatim Usage Policy</a> (1 pyyntö/s, Referer tai User-Agent, ODbL)</li><li>Allen, R.G., Pereira, L.S., Raes, D. &amp; Smith, M. (1998). Crop evapotranspiration – Guidelines for computing crop water requirements. FAO Irrigation and Drainage Paper 56, kyllästyshöyrynpaineen kaava (viite muistinvarainen, tarkista yhtälön numero).</li></ul>
+</div>
+</details>
 
   <p class="foot">
     Malli on karkea ja kalibroimaton: kaksi vesivarastoa (maaperä ja lätäköt), joista haihtuminen riippuu
@@ -425,7 +510,16 @@ async function lookupSoil(lat, lon){
   if(!b && !sf) return {cat:null, text:"GTK:n maaperäkartassa ei ole tietoa tästä pisteestä."};
   const bc = b?.BASE_SEDIMENT, sc = sf?.SURFACE_SEDIMENT;
   const cat = soilCat(sc) || soilCat(bc);
-  const text = "GTK " + L.src + ": pintamaa " + (soilName(sc) || "ei erillistä") + ", pohjamaa " + (soilName(bc) || "–") + ".";
+  const sName = soilName(sc), bName = soilName(bc) || "–";
+  let text = "GTK " + L.src + ": ";
+  if(sc != null && soilCat(sc)){
+    text += "pintamaa (0,4–0,9 m) " + sName + ", pohjamaa (1 m syvyydessä) " + bName + ". Pintamaa ratkaisee.";
+  }else{
+    text += "pohjamaa (1 m syvyydessä) " + bName + ". ";
+    text += sc != null
+      ? "Pintamaa (" + sName + ") ei ole käyttökelpoinen luokka, joten pohjamaa ratkaisee."
+      : "Pintamaata ei ole merkitty erikseen (sama maalaji jatkuu pinnalle tai kerros on alle 0,4 m), joten pohjamaa ratkaisee.";
+  }
   return {cat, text};
 }
 
@@ -836,16 +930,13 @@ function drawChart(sim){
     s += `<line x1="${x(nowI)}" x2="${x(nowI)}" y1="${Tp - 4}" y2="${Tp + ph}" stroke="#17231d" stroke-width="1"/>`;
     s += `<text x="${x(nowI)}" y="${Tp - 7}" font-size="11" text-anchor="middle" fill="#17231d">nyt</text>`;
   }
-  // päivämääräakseli
-  const step = Math.max(1, Math.ceil((n / 24) / 8));
-  let dayIdx = 0;
+  // päivämääräakseli: pystyviiva ja päivämäärä jokaiselle vuorokaudelle
   vis.forEach((r, i) => {
     const dt = new Date(r.t);
     if(dt.getHours() === 0){
-      if(dayIdx % step === 0){
-        s += `<text x="${x(i)}" y="${H-8}" font-size="11" text-anchor="middle" fill="#5a6a60">${dt.getDate()}.${dt.getMonth()+1}.</text>`;
-      }
-      dayIdx++;
+      s += `<line x1="${x(i)}" x2="${x(i)}" y1="${Tp}" y2="${Tp+ph}" stroke="#c3cdc0" stroke-width="1" opacity=".6"/>`;
+      s += `<text x="${x(i)}" y="${H-6}" font-size="9.5" text-anchor="end" fill="#5a6a60"
+              transform="rotate(-40 ${x(i)} ${H-6})">${dt.getDate()}.${dt.getMonth()+1}.</text>`;
     }
   });
   $("chart").innerHTML = s;
