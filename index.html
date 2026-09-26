@@ -56,6 +56,7 @@ summary{cursor:pointer;font-weight:600}
   background:var(--paper);color:var(--ink)}
 .placeRow{display:flex;gap:8px}
 .placeRow input{flex:1;min-width:0}
+.placeRow button#placeGeo{flex:none;padding:9px 12px}
 .station select+small,.station .placeRow+select{margin-top:8px}
 .station small.err{color:#8a2c1f}
 .station small{display:block;color:var(--soft);font-size:.78rem;margin-top:4px}
@@ -95,6 +96,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <div class="placeRow">
       <input id="place" placeholder="Paikan nimi tai koordinaatit, esim. Haukkalampi, Espoo" autocomplete="off" spellcheck="false">
       <button type="button" id="placeGo">Hae paikka</button>
+      <button type="button" id="placeGeo" title="Käytä nykyistä sijaintia" aria-label="Käytä nykyistä sijaintia">📍</button>
     </div>
     <select id="placeSel" hidden aria-label="Muut osumat"></select>
     <small id="placeInfo">Paikka määrää ennusteen sijainnin ja oletusaseman. Voit myös valita aseman suoraan.</small>
@@ -397,6 +399,43 @@ async function geocode(q){
 }
 
 const shortName = n => n.split(", ").slice(0, 3).join(", ");
+
+async function reverseGeocode(lat, lon){
+  const wait = 1100 - (Date.now() - lastGeo);
+  if(wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastGeo = Date.now();
+  const u = new URLSearchParams({lat, lon, format:"jsonv2", "accept-language":"fi", zoom:"16"});
+  const res = await fetch("https://nominatim.openstreetmap.org/reverse?" + u.toString());
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  const o = await res.json();
+  return o?.display_name || null;
+}
+
+function useMyLocation(){
+  const info = $("placeInfo");
+  if(!("geolocation" in navigator)){
+    info.textContent = "Selain ei tue sijainnin hakua. Kirjoita paikka tai koordinaatit käsin.";
+    return;
+  }
+  $("placeGeo").disabled = true;
+  info.textContent = "Haetaan nykyistä sijaintia…";
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    let name = lat.toFixed(4) + ", " + lon.toFixed(4);
+    try{
+      const rn = await reverseGeocode(lat, lon);
+      if(rn) name = rn;
+    }catch(_){ /* koordinaatit riittävät, jos käänteishaku ei onnistu */ }
+    $("place").value = shortName(name);
+    applyTrail({lat, lon, name});
+    $("placeGeo").disabled = false;
+  }, err => {
+    $("placeGeo").disabled = false;
+    const msgs = {1:"Sijainnin käyttö on estetty selaimen asetuksista.", 2:"Sijaintia ei saatu.", 3:"Sijainnin haku aikakatkaistiin."};
+    info.textContent = (msgs[err.code] || "Sijainnin haku epäonnistui.") + " Kirjoita paikka tai koordinaatit käsin.";
+  }, {enableHighAccuracy:true, timeout:10000, maximumAge:60000});
+}
+
 
 function describeTrail(){
   const near = nearestStations(1)[0];
@@ -1001,6 +1040,7 @@ $("evapHelp").addEventListener("click", () => {
   $("evapHelp").setAttribute("aria-expanded", String(open));
 });
 $("placeGo").addEventListener("click", searchPlace);
+$("placeGeo").addEventListener("click", useMyLocation);
 $("place").addEventListener("keydown", e => { if(e.key === "Enter") searchPlace(); });
 $("placeSel").addEventListener("change", () => {
   const c = candidates[parseInt($("placeSel").value, 10)];
