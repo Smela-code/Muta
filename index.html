@@ -846,9 +846,12 @@ const ICONS = [
   BIKE + `<path d="M2 58h92"/><path d="M6 62.5h84" stroke-width="2" stroke-dasharray="3 4"/>${dot(6, 52, 1.8)}${dot(89, 50, 1.8)}${dot(93, 44, 1.5)}`,
   // märkä: mutainen aaltoileva pinta ja mutaa lentää renkaasta
   BIKE + `<path d="M0 58c5-3 11 3 16 0s11 3 16 0 11 3 16 0 11 3 16 0 11 3 16 0 11 3 16 0"/><path d="M6 63c4-2 8 2 12 0s8 2 12 0 8 2 12 0 8 2 12 0 8 2 12 0" stroke-width="2"/>${dot(7, 45, 2)}${dot(3, 50, 1.5)}${dot(10, 39, 1.5)}`,
-  // mutaa ja lätäköitä: etupyörä osuu lätäkköön ja vesi roiskuu
-  BIKE + `<path d="M2 58h47"/><ellipse cx="72" cy="58" rx="23" ry="4.5"/><path d="M62 63h20" stroke-width="2"/>
-   ${dot(52, 50, 2)}${dot(56, 45, 1.6)}${dot(91, 46, 2)}${dot(86, 40, 1.6)}${dot(93, 38, 1.4)}${dot(50, 55, 1.4)}`
+  // mutaa ja lätäköitä: etupyörä uppoaa osittain lätäkköön, vesi peittää renkaan alaosan ja roiskuu sivuille
+  BIKE + `<path d="M2 58h44"/>
+   <path d="M46 49c6-2 11 2 16 0s11 2 16 0 11 2 16 0v15H46z" fill="currentColor" stroke="none"/>
+   <path d="M46 49c6-2 11 2 16 0s11 2 16 0 11 2 16 0" stroke-width="2"/>
+   <path d="M46 50c-4-6-2-11 3-14M94 50c4-6 2-11-3-14" stroke-width="2.2"/>
+   ${dot(43, 43, 1.8)}${dot(39, 38, 1.4)}${dot(98, 43, 1.8)}${dot(101, 37, 1.4)}${dot(103, 46, 1.3)}`
 ];
 function iconSvg(i){
   return `<svg viewBox="0 0 96 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${ICONS[i]}</svg>`;
