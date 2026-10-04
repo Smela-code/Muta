@@ -790,7 +790,7 @@ async function fetchForecast(loc){
 
 /* ---------- Kastevaroitus ---------- */
 // Pilvisyys (N) ilmoitetaan kahdeksasosina, oktas-asteikolla 0-8 (0 = pilvetön, 8 = täysin pilvinen).
-function dewRisk(hours){
+function dewRisk(hours, sim){
   const nVals = hours.map(h => h.N).filter(v => !isNaN(v));
   if(!nVals.length) return [];                                     // pilvisyyttä ei saatu: ei varoiteta
   const toOktas = v => v > 8 ? v / 100 * 8 : v;                     // varmuuden vuoksi, jos joku lähde poikkeaisi
@@ -816,11 +816,20 @@ function dewRisk(hours){
     }
   });
   if(cur && cur.end - cur.start >= 1) spans.push(cur);
+  const off = rows.length;                                          // hours (=fcRows) alkaa tästä sim.score-indeksistä
   return spans.map(sp => {
     const seg = hours.slice(sp.start, sp.end + 1);
     const rh = Math.round(seg.reduce((a, h) => a + h.RH, 0) / seg.length);
     const ws = (seg.reduce((a, h) => a + h.WS, 0) / seg.length).toFixed(1).replace(".", ",");
-    return {date: new Date(hours[sp.start].t), rh, ws, startIdx: sp.start, endIdx: sp.end};
+    // Jos polku on tässä vaiheessa jo muutenkin kostea (indeksi "Kostea" tai korkeampi), kaste ei ole se syy,
+    // miksi polku olisi liukas - silloin "liukas vaikkei sadetta näy" -huomautus olisi harhaanjohtava.
+    let muddy = false;
+    if(sim && sim.score){
+      const scores = [];
+      for(let i = sp.start; i <= sp.end; i++){ const v = sim.score[off + i]; if(!isNaN(v)) scores.push(v); }
+      if(scores.length) muddy = (scores.reduce((a, b) => a + b, 0) / scores.length) >= 50;
+    }
+    return {date: new Date(hours[sp.start].t), rh, ws, startIdx: sp.start, endIdx: sp.end, muddy};
   });
 }
 
@@ -832,8 +841,9 @@ function renderDewWarning(allSpans, pairedDew){
   if(!spans.length){ box.hidden = true; return; }
   const dayName = d => d.toLocaleDateString("fi-FI", {weekday:"long"});
   box.innerHTML = spans.map(sp =>
-    "🌫️ Mahdollista aamukastetta " + dayName(sp.date) + "na: ilma lähes kyllästynyt (" + sp.rh + " % RH), " +
-    "tyyntä (" + sp.ws + " m/s) ja vähäpilvistä. Polut voivat olla liukkaat, vaikkei sadetta näy."
+    "Mahdollista aamukastetta " + dayName(sp.date) + "na: ilma lähes kyllästynyt (" + sp.rh + " % RH), " +
+    "tyyntä (" + sp.ws + " m/s) ja vähäpilvistä." +
+    (sp.muddy ? "" : " Polut voivat olla liukkaat, vaikkei sadetta näy.")
   ).join("<br>") +
   "<br><span class=\"dewnote\">Arvio perustuu ennusteeseen eikä kosteusmittaukseen, joten se voi osua väärään erityisesti pilvisyyden osalta.</span>";
   box.hidden = false;
@@ -907,7 +917,7 @@ function renderIceWarning(allSpans, pairs){
     const t = sp.min === sp.max ? deg(sp.min) + " °C" : deg(sp.min) + " … " + deg(sp.max) + " °C";
     const dew = pairByIce.get(sp);
     if(dew){
-      return "🌫️❄️ Mahdollista kastetta illalla, joka jäätyy yöllä " + dayName(sp.date) + "na: ilta kostea ja tyyni " +
+      return "❄️ Mahdollista kastetta illalla, joka jäätyy yöllä " + dayName(sp.date) + "na: ilta kostea ja tyyni " +
         "(ilma lähes kyllästynyt, noin " + dew.rh + " % RH), yöllä pakkasta (" + t + ") – polut voivat olla erityisen liukkaat.";
     }
     return "❄️ Mahdollista jäätä poluilla " + dayName(sp.date) + "na: pakkasta (" + t + "), " + sp.reason + ".";
@@ -1016,7 +1026,7 @@ function render(){
   $("evapBreak").textContent = "Viimeisen 7 vrk aikana haihtumista " + fmt(evap7) + " mm ja valuntaa maaperästä " + fmt(drain7) + " mm.";
   $("out").hidden = false;
   renderForecast(sim);
-  const dewSpansAll = dewRisk(fcRows), iceSpansAll = frostRisk(sim);
+  const dewSpansAll = dewRisk(fcRows, sim), iceSpansAll = frostRisk(sim);
   const pairs = pairWarnings(dewSpansAll, iceSpansAll);
   renderDewWarning(dewSpansAll, new Set(pairs.map(p => p.dew)));
   renderIceWarning(iceSpansAll, pairs);
