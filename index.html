@@ -24,10 +24,10 @@ h1{font-size:1.05rem;margin:0 0 2px;font-weight:700;letter-spacing:.01em}
 .verdict .big{font-size:2.6rem;font-weight:800;line-height:1;letter-spacing:-.02em}
 .verdict .lbl{font-size:1.15rem;font-weight:600;margin-top:6px}
 .verdict .note{font-size:.88rem;opacity:.92;margin-top:8px}
-.dew,.ice{background:#eef2ea;border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:12px 0 0;
-  font-size:.85rem;line-height:1.4}
-.ice{background:#e8eef5}
-.dew .dewnote,.ice .dewnote{color:var(--soft);font-size:.78rem}
+.chip-warn{margin-top:8px;padding:7px 9px;border-radius:8px;font-size:.78rem;line-height:1.35}
+.chip-warn.dew{background:#eef2ea}
+.chip-warn.ice{background:#e8eef5}
+.fcnote{color:var(--soft);font-size:.78rem;margin:8px 0 0;line-height:1.4}
 .fc{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px;margin:12px 0 0}
 .chip{background:var(--paper);border-radius:10px;padding:8px 10px;border-left:6px solid var(--moss);line-height:1.25}
 .chip span{display:block;font-size:.78rem;color:var(--soft)}
@@ -134,9 +134,8 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
       </div>
       <div class="wicon" id="wicon" aria-hidden="true"></div>
     </div>
-    <div class="ice" id="ice" hidden></div>
-    <div class="dew" id="dew" hidden></div>
     <div class="fc" id="fc" hidden></div>
+    <div class="fcnote" id="fcnote" hidden>Kaste- ja jäätymisarviot perustuvat ennusteeseen, eivät mittauksiin, joten ne voivat osua väärään erityisesti pilvisyyden ja tuulen osalta.</div>
     <div class="stats">
       <div class="stat"><b id="s-rain">–</b><span>sadetta 7 vrk</span></div>
       <div class="stat"><b id="s-evap">–</b><span>poistunut vesi 7 vrk
@@ -833,22 +832,6 @@ function dewRisk(hours, sim){
   });
 }
 
-function renderDewWarning(allSpans, pairedDew){
-  const box = $("dew");
-  if(!fcRows.length){ box.hidden = true; return; }
-  const paired = pairedDew || new Set();
-  const spans = (allSpans || []).filter(sp => !paired.has(sp)).slice(0, 2); // enintään kaksi, pariksi menneet pois
-  if(!spans.length){ box.hidden = true; return; }
-  const dayName = d => d.toLocaleDateString("fi-FI", {weekday:"long"});
-  box.innerHTML = spans.map(sp =>
-    "Mahdollista aamukastetta " + dayName(sp.date) + "na: ilma lähes kyllästynyt (" + sp.rh + " % RH), " +
-    "tyyntä (" + sp.ws + " m/s) ja vähäpilvistä." +
-    (sp.muddy ? "" : " Polut voivat olla liukkaat, vaikkei sadetta näy.")
-  ).join("<br>") +
-  "<br><span class=\"dewnote\">Arvio perustuu ennusteeseen eikä kosteusmittaukseen, joten se voi osua väärään erityisesti pilvisyyden osalta.</span>";
-  box.hidden = false;
-}
-
 /* ---------- Jäävaroitus ---------- */
 // Kaksi tapaa, joilla polku voi jäätyä: (1) maasto on jo märkää ja lämpötila laskee pakkaselle, jolloin
 // olemassa oleva vesi jäätyy liukkaaksi pinnaksi, tai (2) samat olosuhteet kuin kasteessa (kostea, tyyni,
@@ -904,26 +887,6 @@ function pairWarnings(dewSpans, iceSpans){
     if(match){ usedIce.add(iceSpans.indexOf(match)); pairs.push({dew: d, ice: match}); }
   });
   return pairs;
-}
-
-function renderIceWarning(allSpans, pairs){
-  const box = $("ice");
-  const pairByIce = new Map((pairs || []).map(p => [p.ice, p.dew]));
-  const spans = (allSpans || []).slice(0, 2);
-  if(!spans.length){ box.hidden = true; return; }
-  const deg = v => String(v).replace("-", "−");
-  const dayName = d => d.toLocaleDateString("fi-FI", {weekday:"long"});
-  box.innerHTML = spans.map(sp => {
-    const t = sp.min === sp.max ? deg(sp.min) + " °C" : deg(sp.min) + " … " + deg(sp.max) + " °C";
-    const dew = pairByIce.get(sp);
-    if(dew){
-      return "❄️ Mahdollista kastetta illalla, joka jäätyy yöllä " + dayName(sp.date) + "na: ilta kostea ja tyyni " +
-        "(ilma lähes kyllästynyt, noin " + dew.rh + " % RH), yöllä pakkasta (" + t + ") – polut voivat olla erityisen liukkaat.";
-    }
-    return "❄️ Mahdollista jäätä poluilla " + dayName(sp.date) + "na: pakkasta (" + t + "), " + sp.reason + ".";
-  }).join("<br>") +
-  "<br><span class=\"dewnote\">Malli ei laske jään muodostumista; tämä on karkea arvio pakkasen, kosteuden ja aiemman märkyyden perusteella.</span>";
-  box.hidden = false;
 }
 
 /* ---------- Malli ---------- */
@@ -986,23 +949,64 @@ const ICON_URIS = [
 /* ---------- Näyttö ---------- */
 function fmt(x, d=1){ return isNaN(x) ? "–" : x.toFixed(d).replace(".", ","); }
 
-function renderForecast(sim){
+// Liittää kaste-/jäävaroitukset siihen ennustekorttiin, jonka 24h-jaksoon (sama liukuva jakso kuin lämpötilassa)
+// yöriski ajallisesti osuu. Kaste ja (ei-parittunut) jää ovat omat laatikkonsa; pariutunut kaste->jää näkyy
+// yhtenä jäälaatikkona, jossa mainitaan myös illan kaste.
+function buildWarnItems(dewSpansAll, iceSpansAll, pairs){
+  const pairedDew = new Map((pairs || []).map(p => [p.dew, p.ice]));
+  const pairedIceSet = new Set((pairs || []).map(p => p.ice));
+  const items = [];
+  (dewSpansAll || []).forEach(sp => {
+    if(pairedDew.has(sp)) return;                                   // näytetään pariutuneena jään yhteydessä
+    const startMs = new Date(fcRows[sp.startIdx].t).getTime();
+    const endMs = new Date(fcRows[sp.endIdx].t).getTime();
+    const html = "Mahdollista aamukastetta: ilma lähes kyllästynyt (" + sp.rh + " % RH), tyyntä (" + sp.ws + " m/s) ja vähäpilvistä." +
+      (sp.muddy ? "" : " Polut voivat olla liukkaat, vaikkei sadetta näy.");
+    items.push({startMs, endMs, cls:"dew", html});
+  });
+  (iceSpansAll || []).forEach(sp => {
+    const startMs = new Date(fcRows[sp.startIdx].t).getTime();
+    const endMs = new Date(fcRows[sp.endIdx].t).getTime();
+    const deg = v => String(v).replace("-", "−");
+    const t = sp.min === sp.max ? deg(sp.min) + " °C" : deg(sp.min) + " … " + deg(sp.max) + " °C";
+    let dewPair = null;
+    for(const [d, ic] of pairedDew) if(ic === sp) dewPair = d;
+    const html = dewPair
+      ? "❄️ Mahdollista kastetta illalla, joka jäätyy yöllä: ilta kostea ja tyyni (ilma lähes kyllästynyt, noin " +
+        dewPair.rh + " % RH), yöllä pakkasta (" + t + ") – polut voivat olla erityisen liukkaat."
+      : "❄️ Mahdollista jäätä poluilla: pakkasta (" + t + "), " + sp.reason + ".";
+    items.push({startMs, endMs, cls:"ice", html});
+  });
+  return items;
+}
+
+function renderForecast(sim, dewSpansAll, iceSpansAll, pairs){
   const box = $("fc"); box.innerHTML = "";
-  if(!fcRows.length){ box.hidden = true; return; }
+  const note = $("fcnote");
+  if(!fcRows.length){ box.hidden = true; note.hidden = true; return; }
   const all = rows.concat(fcRows);
   const t0 = new Date(rows[rows.length-1].t).getTime();
-  for(const [h, lab] of [[24, "Huomenna"], [48, "2 vrk päästä"], [72, "3 vrk päästä"]]){
+  const warnItems = buildWarnItems(dewSpansAll, iceSpansAll, pairs);
+  const dayName = ms => { const s = new Date(ms).toLocaleDateString("fi-FI", {weekday:"long"}); return s.charAt(0).toUpperCase() + s.slice(1); };
+  let anyWarn = false;
+  for(const h of [24, 48, 72]){
+    const lab = h === 24 ? "Huomenna" : dayName(t0 + h*36e5);     // 2 ja 3 vrk päästä: oikea viikonpäivä
     const idx = all.findIndex(r => new Date(r.t).getTime() >= t0 + h*36e5);
     if(idx < 0) continue;
     const sc = sim.score[idx], cls = CLASSES.find(c => sc < c.max);
     const win = all.slice(Math.max(rows.length, idx - 23), idx + 1).map(r => r.T).filter(x => !isNaN(x));   // 24 h ennustejakso
     const deg = v => String(Math.round(v)).replace("-", "−");            // pyöristys ja oikea miinusmerkki
     const tmp = win.length ? "min " + deg(Math.min(...win)) + " / max " + deg(Math.max(...win)) + " °C" : "–";
+    const winStart = t0 + (h - 24)*36e5, winEnd = t0 + h*36e5;
+    const warn = warnItems.find(w => w.startMs < winEnd && w.endMs >= winStart);
     const d = document.createElement("div"); d.className = "chip"; d.style.borderLeftColor = cls.color;
-    d.innerHTML = `<span>${lab}</span><b>${Math.round(sc)}</b><em>${cls.label}</em><span>${tmp}</span>`;
+    d.innerHTML = `<span>${lab}</span><b>${Math.round(sc)}</b><em>${cls.label}</em><span>${tmp}</span>` +
+      (warn ? `<div class="chip-warn ${warn.cls}">${warn.html}</div>` : "");
+    if(warn) anyWarn = true;
     box.appendChild(d);
   }
   box.hidden = !box.children.length;
+  note.hidden = !anyWarn;
 }
 
 function render(){
@@ -1025,11 +1029,9 @@ function render(){
   $("s-evap").textContent = fmt(evap7 + drain7) + " mm";
   $("evapBreak").textContent = "Viimeisen 7 vrk aikana haihtumista " + fmt(evap7) + " mm ja valuntaa maaperästä " + fmt(drain7) + " mm.";
   $("out").hidden = false;
-  renderForecast(sim);
   const dewSpansAll = dewRisk(fcRows, sim), iceSpansAll = frostRisk(sim);
   const pairs = pairWarnings(dewSpansAll, iceSpansAll);
-  renderDewWarning(dewSpansAll, new Set(pairs.map(p => p.dew)));
-  renderIceWarning(iceSpansAll, pairs);
+  renderForecast(sim, dewSpansAll, iceSpansAll, pairs);
   drawChart(sim);
 }
 
