@@ -24,6 +24,10 @@ h1{font-size:1.05rem;margin:0 0 2px;font-weight:700;letter-spacing:.01em}
 .verdict .big{font-size:2.6rem;font-weight:800;line-height:1;letter-spacing:-.02em}
 .verdict .lbl{font-size:1.15rem;font-weight:600;margin-top:6px}
 .verdict .note{font-size:.88rem;opacity:.92;margin-top:8px}
+.dew,.ice{background:#eef2ea;border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:12px 0 0;
+  font-size:.85rem;line-height:1.4}
+.ice{background:#e8eef5}
+.dew .dewnote,.ice .dewnote{color:var(--soft);font-size:.78rem}
 .fc{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px;margin:12px 0 0}
 .chip{background:var(--paper);border-radius:10px;padding:8px 10px;border-left:6px solid var(--moss);line-height:1.25}
 .chip span{display:block;font-size:.78rem;color:var(--soft)}
@@ -130,6 +134,8 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
       </div>
       <div class="wicon" id="wicon" aria-hidden="true"></div>
     </div>
+    <div class="ice" id="ice" hidden></div>
+    <div class="dew" id="dew" hidden></div>
     <div class="fc" id="fc" hidden></div>
     <div class="stats">
       <div class="stat"><b id="s-rain">–</b><span>sadetta 7 vrk</span></div>
@@ -712,14 +718,14 @@ async function loadObservations(loc){
 /* ---------- Ennuste ---------- */
 const FORECASTS = [
   {label:"FMI:n ennuste", q:"fmi::forecast::edited::weather::scandinavia::point::simple",
-   params:"Temperature,Humidity,WindSpeedMS,Precipitation1h", hours:240},
+   params:"Temperature,Humidity,WindSpeedMS,Precipitation1h,TotalCloudCover", hours:240},
   {label:"Harmonie-malli", q:"fmi::forecast::harmonie::surface::point::simple",
-   params:"Temperature,Humidity,WindSpeedMS,PrecipitationAmount", hours:60},
+   params:"Temperature,Humidity,WindSpeedMS,PrecipitationAmount,TotalCloudCover", hours:60},
   {label:"Harmonie-malli", q:"fmi::forecast::harmonie::surface::point::timevaluepair",
-   params:"Temperature,Humidity,WindSpeedMS,PrecipitationAmount", hours:60}
+   params:"Temperature,Humidity,WindSpeedMS,PrecipitationAmount,TotalCloudCover", hours:60}
 ];
 const FC_PARAM = { temperature:"T", humidity:"RH", windspeedms:"WS",
-                   precipitation1h:"R", precipitationamount:"Racc" };
+                   precipitation1h:"R", precipitationamount:"Racc", totalcloudcover:"N" };
 const GML = "http://www.opengis.net/gml/3.2";
 
 function parseSeries(doc){
@@ -763,7 +769,7 @@ async function fetchForecast(loc){
       const map = new Map();
       for(const r of parseSeries(doc)){
         const k = FC_PARAM[r.name]; if(!k) continue;
-        if(!map.has(r.t)) map.set(r.t, {t:r.t, T:NaN, R:NaN, RH:NaN, WS:NaN, Racc:NaN, fc:true});
+        if(!map.has(r.t)) map.set(r.t, {t:r.t, T:NaN, R:NaN, RH:NaN, WS:NaN, Racc:NaN, N:NaN, fc:true});
         map.get(r.t)[k] = r.v;
       }
       const list = [...map.values()].sort((a, b) => a.t < b.t ? -1 : 1);
@@ -780,6 +786,134 @@ async function fetchForecast(loc){
     }catch(e){ lastErr = e; }
   }
   throw lastErr || new Error("ei ennustetta");
+}
+
+/* ---------- Kastevaroitus ---------- */
+// Pilvisyys (N) ilmoitetaan kahdeksasosina, oktas-asteikolla 0-8 (0 = pilvetön, 8 = täysin pilvinen).
+function dewRisk(hours){
+  const nVals = hours.map(h => h.N).filter(v => !isNaN(v));
+  if(!nVals.length) return [];                                     // pilvisyyttä ei saatu: ei varoiteta
+  const toOktas = v => v > 8 ? v / 100 * 8 : v;                     // varmuuden vuoksi, jos joku lähde poikkeaisi
+  const cloudOk = v => !isNaN(v) && toOktas(v) <= 3;                 // vähäinen pilvisyys (0-3/8)
+  const risky = h => {
+    const dt = new Date(h.t), hr = dt.getHours();
+    const night = hr >= 21 || hr < 9;                                // ilta, yö ja aamu
+    return night && !isNaN(h.RH) && h.RH >= 95
+      && !isNaN(h.WS) && h.WS < 2
+      && !isNaN(h.T) && h.T >= 0 && h.T <= 10
+      && (isNaN(h.R) || h.R <= 0)
+      && cloudOk(h.N);
+  };
+  // ryhmitellään peräkkäiset riskituntien jaksot öiksi (vähintään 2 peräkkäistä tuntia)
+  const spans = [];
+  let cur = null;
+  hours.forEach((h, i) => {
+    if(risky(h)){
+      if(!cur) cur = {start:i, end:i}; else cur.end = i;
+    }else if(cur){
+      if(cur.end - cur.start >= 1) spans.push(cur);
+      cur = null;
+    }
+  });
+  if(cur && cur.end - cur.start >= 1) spans.push(cur);
+  return spans.map(sp => {
+    const seg = hours.slice(sp.start, sp.end + 1);
+    const rh = Math.round(seg.reduce((a, h) => a + h.RH, 0) / seg.length);
+    const ws = (seg.reduce((a, h) => a + h.WS, 0) / seg.length).toFixed(1).replace(".", ",");
+    return {date: new Date(hours[sp.start].t), rh, ws, startIdx: sp.start, endIdx: sp.end};
+  });
+}
+
+function renderDewWarning(allSpans, pairedDew){
+  const box = $("dew");
+  if(!fcRows.length){ box.hidden = true; return; }
+  const paired = pairedDew || new Set();
+  const spans = (allSpans || []).filter(sp => !paired.has(sp)).slice(0, 2); // enintään kaksi, pariksi menneet pois
+  if(!spans.length){ box.hidden = true; return; }
+  const dayName = d => d.toLocaleDateString("fi-FI", {weekday:"long"});
+  box.innerHTML = spans.map(sp =>
+    "🌫️ Mahdollista aamukastetta " + dayName(sp.date) + "na: ilma lähes kyllästynyt (" + sp.rh + " % RH), " +
+    "tyyntä (" + sp.ws + " m/s) ja vähäpilvistä. Polut voivat olla liukkaat, vaikkei sadetta näy."
+  ).join("<br>") +
+  "<br><span class=\"dewnote\">Arvio perustuu ennusteeseen eikä kosteusmittaukseen, joten se voi osua väärään erityisesti pilvisyyden osalta.</span>";
+  box.hidden = false;
+}
+
+/* ---------- Jäävaroitus ---------- */
+// Kaksi tapaa, joilla polku voi jäätyä: (1) maasto on jo märkää ja lämpötila laskee pakkaselle, jolloin
+// olemassa oleva vesi jäätyy liukkaaksi pinnaksi, tai (2) samat olosuhteet kuin kasteessa (kostea, tyyni,
+// vähäpilvinen yö) mutta pakkasella, jolloin muodostuu huurretta/kuuraa suoraan ilman edeltävää sadetta.
+function frostRisk(sim){
+  if(!fcRows.length) return [];
+  const all = rows.concat(fcRows);
+  const off = rows.length;                                          // ennuste alkaa tästä indeksistä
+  const nVals = fcRows.map(h => h.N).filter(v => !isNaN(v));
+  const toOktas = v => v > 8 ? v / 100 * 8 : v;
+  const cloudOk = v => nVals.length && !isNaN(v) && toOktas(v) <= 3;
+  const risky = (h, score) => {
+    if(isNaN(h.T) || h.T > 0) return false;
+    const dt = new Date(h.t), hr = dt.getHours(), night = hr >= 21 || hr < 9;
+    const wetFreezes = !isNaN(score) && score >= 25;                 // maasto oli kosteaa, ja nyt pakkasta
+    const frostForms = night && !isNaN(h.RH) && h.RH >= 95 && !isNaN(h.WS) && h.WS < 2 && cloudOk(h.N);
+    return wetFreezes || frostForms;
+  };
+  const spans = [];
+  let cur = null;
+  for(let i = off; i < all.length; i++){
+    const h = all[i], score = sim.score[i];
+    if(risky(h, score)){
+      const cause = (!isNaN(score) && score >= 25) ? "wet" : "frost";
+      if(!cur) cur = {start:i, end:i, causes:new Set([cause])};
+      else{ cur.end = i; cur.causes.add(cause); }
+    }else if(cur){
+      if(cur.end - cur.start >= 1) spans.push(cur);
+      cur = null;
+    }
+  }
+  if(cur && cur.end - cur.start >= 1) spans.push(cur);
+  return spans.map(sp => {
+    const seg = all.slice(sp.start, sp.end + 1);
+    const temps = seg.map(h => h.T).filter(x => !isNaN(x));
+    const both = sp.causes.has("wet") && sp.causes.has("frost");
+    const reason = both ? "märkä maasto jäätyy ja ilma on kuurakelillä"
+                 : sp.causes.has("wet") ? "aiemmin märkä maasto jäätyy"
+                 : "kostea, tyyni ja vähäpilvinen ilma muodostaa kuuraa";
+    return {date: new Date(all[sp.start].t), min: Math.round(Math.min(...temps)), max: Math.round(Math.max(...temps)), reason,
+      startIdx: sp.start - off, endIdx: sp.end - off};
+  });
+}
+
+// Yhdistää peräkkäiset kaste- ja jääjaksot: jos kasteyö kääntyy suoraan pakkasyöksi (jäätymisjakso alkaa
+// korkeintaan kaksi tuntia kasteen päättymisen jälkeen), näytetään yksi yhdistetty varoitus erillisten sijaan.
+function pairWarnings(dewSpans, iceSpans){
+  const usedIce = new Set();
+  const pairs = [];                                   // {dew, ice}
+  dewSpans.forEach(d => {
+    const match = iceSpans.find((ic, idx) =>
+      !usedIce.has(idx) && ic.startIdx > d.endIdx && ic.startIdx - d.endIdx <= 2);
+    if(match){ usedIce.add(iceSpans.indexOf(match)); pairs.push({dew: d, ice: match}); }
+  });
+  return pairs;
+}
+
+function renderIceWarning(allSpans, pairs){
+  const box = $("ice");
+  const pairByIce = new Map((pairs || []).map(p => [p.ice, p.dew]));
+  const spans = (allSpans || []).slice(0, 2);
+  if(!spans.length){ box.hidden = true; return; }
+  const deg = v => String(v).replace("-", "−");
+  const dayName = d => d.toLocaleDateString("fi-FI", {weekday:"long"});
+  box.innerHTML = spans.map(sp => {
+    const t = sp.min === sp.max ? deg(sp.min) + " °C" : deg(sp.min) + " … " + deg(sp.max) + " °C";
+    const dew = pairByIce.get(sp);
+    if(dew){
+      return "🌫️❄️ Mahdollista kastetta illalla, joka jäätyy yöllä " + dayName(sp.date) + "na: ilta kostea ja tyyni " +
+        "(ilma lähes kyllästynyt, noin " + dew.rh + " % RH), yöllä pakkasta (" + t + ") – polut voivat olla erityisen liukkaat.";
+    }
+    return "❄️ Mahdollista jäätä poluilla " + dayName(sp.date) + "na: pakkasta (" + t + "), " + sp.reason + ".";
+  }).join("<br>") +
+  "<br><span class=\"dewnote\">Malli ei laske jään muodostumista; tämä on karkea arvio pakkasen, kosteuden ja aiemman märkyyden perusteella.</span>";
+  box.hidden = false;
 }
 
 /* ---------- Malli ---------- */
@@ -882,6 +1016,10 @@ function render(){
   $("evapBreak").textContent = "Viimeisen 7 vrk aikana haihtumista " + fmt(evap7) + " mm ja valuntaa maaperästä " + fmt(drain7) + " mm.";
   $("out").hidden = false;
   renderForecast(sim);
+  const dewSpansAll = dewRisk(fcRows), iceSpansAll = frostRisk(sim);
+  const pairs = pairWarnings(dewSpansAll, iceSpansAll);
+  renderDewWarning(dewSpansAll, new Set(pairs.map(p => p.dew)));
+  renderIceWarning(iceSpansAll, pairs);
   drawChart(sim);
 }
 
